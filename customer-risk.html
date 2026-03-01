@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Risk &amp; AML Integration — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Customer Risk &amp; AML Integration
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+  <a href="case-management.html">Alert Investigation &amp; Case Management</a>
+
+  <div class="nav-section">Compliance</div>
+  <a href="customer-risk.html" class="active">Customer Risk &amp; AML Integration</a>
+  <a href="fraud-typologies.html">Fraud Typology Reference</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Customer Risk &amp; AML Integration</h1>
+  <p class="topic-meta">
+    <span>Audience: Compliance Officers, BSA/AML Analysts, Risk Managers</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    FraudShield AI integrates with the Customer Due Diligence (CDD) module and Anti-Money Laundering (AML) platform to provide a unified view of customer risk across fraud prevention and regulatory compliance. Transaction-level fraud risk scores are enriched with entity-level CDD risk, sanctions screening status, and AML typology indicators to give fraud analysts and compliance teams a complete picture before any investigation decision is made.
+  </p>
+
+  <div class="note">
+    <strong>Module dependencies</strong>
+    This page covers features that require the FraudShield CDD and AML Integration modules. The base AI Engine includes the customer risk score as an input feature only. Configuring CDD risk models and AML workflows requires separate licensing and implementation.
+  </div>
+
+  <!-- CDD OVERVIEW -->
+  <h2 id="cdd-overview">Customer Due Diligence (CDD) overview</h2>
+  <p>
+    The CDD module maintains a <strong>Customer Risk Score</strong> for every entity in the institution's customer base. Unlike the transaction-level risk score produced by FraudShield AI at scoring time, the CDD risk score is a standing customer-level assessment — updated periodically and in response to trigger events, not per transaction.
+  </p>
+  <p>
+    Two CDD detection models drive the customer risk score:
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Purpose</th>
+          <th>When it runs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CDD-HRC</code> — High Risk Customer</td>
+          <td>Calculates the initial customer risk score at onboarding and on the periodic review schedule. Evaluates all configured risk factors and produces an overall risk rating: <span class="score-badge badge-low">Low</span>, <span class="score-badge badge-medium">Medium</span>, <span class="score-badge badge-high">High</span>, or <span class="score-badge badge-critical">Unacceptable</span>.</td>
+          <td>Customer onboarding, periodic review cycle (30/90/180/365 days depending on risk rating), manual trigger</td>
+        </tr>
+        <tr>
+          <td><code>CDD-INR</code> — Change in Customer Risk</td>
+          <td>Recalculates the risk score when a trigger event occurs between scheduled reviews: a fraud alert, a watchlist hit, a change in beneficial ownership, or a significant behavior change.</td>
+          <td>Event-triggered: fraud alert generated, SAR filed, watchlist match, ownership change, address change</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- RISK FACTORS -->
+  <h2 id="risk-factors">Customer risk factors</h2>
+  <p>
+    The CDD risk score is the weighted sum of individual <strong>risk factor scores</strong>. Each risk factor evaluates a specific dimension of customer risk. Institutions configure the weight and scoring scale for each factor to reflect their risk appetite and regulatory requirements.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Risk factor</th>
+          <th>Description</th>
+          <th>Configurable</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>PEP status</strong></td>
+          <td>Politically Exposed Person score. Evaluates the customer's PEP position (e.g., Head of State vs. local official), PEP status (current, former &lt;1 year, former &gt;1 year), and the PEP status of Relatives and Close Associates (RCAs). RCA relationships are weighted by relationship type.</td>
+          <td>Yes — PEP position scores, RCA relationship weights, maximum score cap</td>
+        </tr>
+        <tr>
+          <td><strong>High-risk geography</strong></td>
+          <td>Country risk based on FATF grey/black lists, OFAC country sanctions, and institutional risk country list. Applies to customer domicile, beneficiary countries, and countries of business operation.</td>
+          <td>Yes — country risk scores, list source (FATF, OFAC, custom)</td>
+        </tr>
+        <tr>
+          <td><strong>High-risk business type</strong></td>
+          <td>Industry/business category risk for entity accounts. Cash-intensive businesses (MSB, casinos, car dealers), cryptocurrency exchanges, and shell companies carry elevated scores.</td>
+          <td>Yes — business type risk scores per NAICS code or custom category</td>
+        </tr>
+        <tr>
+          <td><strong>Beneficial ownership</strong></td>
+          <td>Ownership structure complexity and presence of high-risk owners. Evaluates ultimate beneficial owners (UBOs), ownership percentage thresholds (default ≥25%), and any PEP-flagged owners.</td>
+          <td>Yes — UBO ownership threshold, maximum ownership chain depth</td>
+        </tr>
+        <tr>
+          <td><strong>Expected behavior deviation</strong></td>
+          <td>Compares actual transaction behavior (volume, type, geography) against the customer's stated expected behavior profile at onboarding. Significant deviation triggers a CDD-INR recalculation.</td>
+          <td>Yes — deviation thresholds, time window</td>
+        </tr>
+        <tr>
+          <td><strong>Adverse news / negative media</strong></td>
+          <td>Flags from external adverse media screening: involvement in fraud investigations, money laundering cases, regulatory sanctions, or legal proceedings. Sourced via the DataIQ Clarify enrichment integration.</td>
+          <td>Partially — severity weights for news categories</td>
+        </tr>
+        <tr>
+          <td><strong>Fraud history</strong></td>
+          <td>Confirmed fraud alerts on this customer's accounts, SAR filings, and charged-off fraud losses in the past 24 months. Sourced directly from FraudShield AI alert dispositions.</td>
+          <td>Yes — lookback window, loss amount thresholds</td>
+        </tr>
+        <tr>
+          <td><strong>Products and services</strong></td>
+          <td>Higher-risk product types held by the customer: cash accounts, international wire capability, mobile wallets, cryptocurrency on-ramp, foreign currency accounts.</td>
+          <td>Yes — risk score per product type</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- RISK SEGMENTATION -->
+  <h2 id="risk-segmentation">Risk segmentation</h2>
+  <p>
+    Institutions can define <strong>risk segments</strong> so that the same risk factor uses different scoring scales for different customer populations. This prevents a retail customer being scored against the same thresholds as a corporate client with legitimately complex ownership structures.
+  </p>
+
+  <div class="code-label">Example — PEP risk factor score scales by segment</div>
+  <div class="code-block">
+<span class="c-cmt"># Retail Individual customers</span>
+<span class="c-key">segment: RETAIL_INDIVIDUAL</span>
+  pep_current_head_of_state:     <span class="c-num">100</span>
+  pep_current_senior_official:   <span class="c-num">85</span>
+  pep_former_less_1yr:           <span class="c-num">60</span>
+  pep_rca_spouse:                <span class="c-num">50</span>
+  pep_rca_child:                 <span class="c-num">40</span>
+
+<span class="c-cmt"># Corporate / Institutional customers</span>
+<span class="c-key">segment: CORPORATE</span>
+  pep_current_head_of_state:     <span class="c-num">100</span>
+  pep_current_senior_official:   <span class="c-num">70</span>   <span class="c-cmt"># Corporate directors in public life — lower weight</span>
+  pep_former_less_1yr:           <span class="c-num">40</span>
+  pep_rca_spouse:                <span class="c-num">30</span>
+  pep_rca_child:                 <span class="c-num">20</span>
+  </div>
+
+  <!-- PERIODIC REVIEW -->
+  <h2 id="periodic-review">Periodic review workflow</h2>
+  <p>
+    Customers rated <span class="score-badge badge-high">High</span> or <span class="score-badge badge-critical">Unacceptable</span> require more frequent review. The periodic review workflow generates a CDD work item in the Case Manager queue and assigns it to a compliance analyst.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Risk rating</th>
+          <th>Default review frequency</th>
+          <th>Review type</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="score-badge badge-low">Low</span></td>
+          <td>Every 365 days</td>
+          <td>Automated — model re-run only, no analyst action unless score changes</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-medium">Medium</span></td>
+          <td>Every 180 days</td>
+          <td>Automated re-run + analyst notification if score increases by &gt;20 points</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-high">High</span></td>
+          <td>Every 90 days</td>
+          <td>Full analyst review — customer record, transaction lookback, documentation update</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-critical">Unacceptable</span></td>
+          <td>Every 30 days</td>
+          <td>Senior analyst review — may include relationship exit assessment or SAR filing</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- WATCHLIST SCREENING -->
+  <h2 id="watchlist-screening">Watchlist and sanctions screening</h2>
+  <p>
+    FraudShield AI performs watchlist screening at two points: at transaction scoring time (for the beneficiary) and at the customer CDD level (for the customer entity and its beneficial owners). Screening covers OFAC SDN, EU/UN sanctions lists, and any custom institutional watch lists.
+  </p>
+
+  <h3>Screening events</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Screening event</th>
+          <th>Lists screened</th>
+          <th>On match</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Transaction beneficiary (at scoring time)</td>
+          <td>OFAC SDN, EU Consolidated, UN Consolidated, custom</td>
+          <td>Hard BLOCK decision returned regardless of risk score. Alert generated with <code>SANCTIONS_HIT</code> reason code. Mandatory SAR review triggered.</td>
+        </tr>
+        <tr>
+          <td>Customer onboarding (CDD-HRC)</td>
+          <td>OFAC SDN, PEP global lists, adverse media, beneficial owner lists</td>
+          <td>Customer flagged with watchlist match. CDD score set to <strong>Unacceptable</strong>. Compliance officer notified. Account opening held pending review.</td>
+        </tr>
+        <tr>
+          <td>Ongoing customer monitoring (daily batch)</td>
+          <td>All configured lists — updated daily</td>
+          <td>Newly matched customers trigger CDD-INR recalculation. Alert created in compliance queue.</td>
+        </tr>
+        <tr>
+          <td>Beneficial owner screening (CDD-HRC / CDD-INR)</td>
+          <td>OFAC SDN, PEP lists, adverse media</td>
+          <td>Match on any UBO above the ownership percentage threshold flags the entity account.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="caution">
+    <strong>OFAC matches must never be auto-approved</strong>
+    A confirmed OFAC SDN match — on a customer, beneficial owner, or transaction beneficiary — requires manual review by a BSA Officer before any action is taken on the account. Auto-release of a sanctions hold is not permitted and constitutes a potential OFAC violation.
+  </div>
+
+  <!-- CDD + FRAUD INTEGRATION -->
+  <h2 id="fraud-integration">CDD and fraud risk integration</h2>
+  <p>
+    The CDD customer risk score feeds directly into FraudShield AI real-time scoring as a Risk Indicator input. A customer with a <span class="score-badge badge-high">High</span> CDD rating will receive a baseline uplift in their transaction risk scores, so that borderline transactions from known high-risk customers route to review rather than approve.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>CDD risk rating</th>
+          <th>RI input: <code>RI_CDD_CUSTOMER_RISK</code></th>
+          <th>Effect on transaction score</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="score-badge badge-low">Low</span></td>
+          <td>Sub-score: 0</td>
+          <td>No effect</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-medium">Medium</span></td>
+          <td>Sub-score: 20</td>
+          <td>Small uplift — may tip borderline MEDIUM transactions to REVIEW</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-high">High</span></td>
+          <td>Sub-score: 55</td>
+          <td>Significant uplift — HIGH threshold effectively lowered for this customer</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-critical">Unacceptable</span></td>
+          <td>Sub-score: 90</td>
+          <td>Near-critical uplift — most transactions from this customer will hit REVIEW or BLOCK</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SAR/CTR INTEGRATION -->
+  <h2 id="regulatory-reporting">SAR and CTR filing integration</h2>
+  <p>
+    FraudShield AI integrates with the STAR (Suspicious Transaction Activity Reporting) module for SAR filing and with the CTR module for Currency Transaction Report filing. Both are required under BSA/FinCEN regulations.
+  </p>
+
+  <dl>
+    <dt>Suspicious Activity Report (SAR)</dt>
+    <dd>Required when a financial institution knows, suspects, or has reason to suspect that a transaction involves funds from illegal activity, is designed to evade reporting requirements, lacks a lawful purpose, or involves a use of the institution to facilitate criminal activity. FraudShield AI creates a SAR candidate automatically when a fraud alert is dispositioned as Confirmed Fraud. BSA Officer review and approval is required before FinCEN e-filing.</dd>
+    <dt>Currency Transaction Report (CTR)</dt>
+    <dd>Required for cash transactions exceeding $10,000 in a single business day, or structured transactions that appear designed to avoid the $10,000 threshold (structuring). FraudShield AI flags structuring patterns via the <code>RI_STRUCTURING_PATTERN</code> Risk Indicator and routes these alerts to the CTR queue.</dd>
+  </dl>
+
+  <div class="tip">
+    <strong>AML typology detection in the fraud model</strong>
+    The RIs used to detect structuring (<code>RI_STRUCTURING_PATTERN</code>), mule activity (<code>RI_MULE_NETWORK_SCORE</code>), and layering (<code>RI_RAPID_MOVEMENT_THROUGH_ACCOUNT</code>) are deliberately shared between the fraud model and the AML module. This means a transaction that appears fraudulent from a payment fraud perspective will also generate signals visible to the AML team, enabling joined-up financial crime investigation.
+  </div>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraud Typology Reference — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Fraud Typology Reference
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+  <a href="case-management.html">Alert Investigation &amp; Case Management</a>
+
+  <div class="nav-section">Compliance</div>
+  <a href="customer-risk.html">Customer Risk &amp; AML Integration</a>
+  <a href="fraud-typologies.html" class="active">Fraud Typology Reference</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Fraud Typology Reference</h1>
+  <p class="topic-meta">
+    <span>Audience: Fraud Operations, Fraud Analysts, Data Science, Compliance</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    This reference describes the major fraud typologies detected by FraudShield AI Engine, the behavioral signals that characterize each pattern, the primary Risk Indicators (RIs) that fire, and the detection models responsible for scoring. Use this guide to understand why an alert was generated for a specific transaction, to tune thresholds for a specific typology, and to train analyst teams on recognizing fraud patterns in investigation.
+  </p>
+
+  <div class="note">
+    <strong>Typologies evolve — so do models</strong>
+    Fraud typologies shift continuously as fraudsters adapt to detection countermeasures. This reference reflects patterns current as of March 2026. The model retraining cycle (see <a href="retraining.html">Model Retraining Cycle</a>) incorporates new confirmed fraud patterns into training data on an annual basis, or sooner when a significant new typology emerges.
+  </div>
+
+  <!-- QUICK REF TABLE -->
+  <h2 id="quick-reference">Quick reference</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Typology</th>
+          <th>Primary channels</th>
+          <th>Detection model</th>
+          <th>Dominant RI categories</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="#ato">Account Takeover (ATO)</a></td>
+          <td>Web, Mobile</td>
+          <td><code>MDL_WIRE_ATO</code></td>
+          <td>Device &amp; channel, behavioral biometrics, velocity</td>
+        </tr>
+        <tr>
+          <td><a href="#app-fraud">Authorized Push Payment (APP) Fraud</a></td>
+          <td>RTP, FedNow, Web wire</td>
+          <td><code>MDL_RTP_MULE</code>, <code>MDL_WIRE_ATO</code></td>
+          <td>Beneficiary, velocity, behavioral, amount anomaly</td>
+        </tr>
+        <tr>
+          <td><a href="#card-cnp">Card-Not-Present (CNP) Fraud</a></td>
+          <td>eCommerce, API</td>
+          <td><code>MDL_CARD_CNP</code></td>
+          <td>Network/IP, device, velocity, amount anomaly</td>
+        </tr>
+        <tr>
+          <td><a href="#deposit-fraud">Check and Deposit Fraud</a></td>
+          <td>Branch, Mobile (RDC), ATM</td>
+          <td><code>MDL_ACH_FRAUD</code></td>
+          <td>Velocity, account lifecycle, amount anomaly</td>
+        </tr>
+        <tr>
+          <td><a href="#ach-fraud">ACH Fraud (BEC / Unauthorized Debit)</a></td>
+          <td>ACH origination, Batch</td>
+          <td><code>MDL_ACH_FRAUD</code></td>
+          <td>Beneficiary, account lifecycle, velocity</td>
+        </tr>
+        <tr>
+          <td><a href="#mule">Money Mule Activity</a></td>
+          <td>RTP, FedNow, Web, ACH</td>
+          <td><code>MDL_RTP_MULE</code></td>
+          <td>Network graph, velocity, beneficiary, account lifecycle</td>
+        </tr>
+        <tr>
+          <td><a href="#synthetic-id">Synthetic Identity Fraud</a></td>
+          <td>New account origination, Loan</td>
+          <td><code>MDL_1PF_APPFRAUD</code></td>
+          <td>Account lifecycle, enrichment (identity), network graph</td>
+        </tr>
+        <tr>
+          <td><a href="#first-party">First-Party Fraud</a></td>
+          <td>New account, Loan origination</td>
+          <td><code>MDL_1PF_APPFRAUD</code></td>
+          <td>Account lifecycle, velocity, amount anomaly</td>
+        </tr>
+        <tr>
+          <td><a href="#cross-border">Cross-Border Wire Fraud</a></td>
+          <td>SWIFT, Fedwire, Web</td>
+          <td><code>MDL_WIRE_ATO</code></td>
+          <td>Beneficiary, network/IP, velocity, amount anomaly</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ATO -->
+  <h2 id="ato">Account Takeover (ATO)</h2>
+  <p>
+    Account takeover occurs when a fraudster gains unauthorized access to a legitimate customer's online banking account — typically through credential theft (phishing, credential stuffing, SIM swap) or social engineering — and uses the access to initiate fraudulent transfers.
+  </p>
+
+  <h3>Behavioral pattern</h3>
+  <ul>
+    <li>Login from a new, previously unregistered device or a device associated with multiple unrelated accounts.</li>
+    <li>IP address from a different country than the customer's normal geolocation, or IP flagged as VPN/proxy/TOR exit node.</li>
+    <li>Unusual keystroke dynamics — typing cadence doesn't match the enrolled behavioral biometric for this customer.</li>
+    <li>Navigation anomaly: direct navigation to the payment screen without the typical pre-payment browsing pattern.</li>
+    <li>Password or security question changed in the 24–72 hours before the fraudulent transaction.</li>
+    <li>High-value transfer to a new beneficiary in the same session as the credential change.</li>
+    <li>Rapid session: payment initiated within seconds or minutes of login, far shorter than the customer's normal session pattern.</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th><th>Typical sub-score</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_DEVICE_FINGERPRINT_CHANGE</code></td><td>Login device not seen before for this account</td><td>55–85</td></tr>
+        <tr><td><code>RI_IP_COUNTRY_MISMATCH</code></td><td>IP country differs from account registration country</td><td>40–75</td></tr>
+        <tr><td><code>RI_KEYSTROKE_ANOMALY_SCORE</code></td><td>Typing pattern below biometric similarity threshold</td><td>60–95</td></tr>
+        <tr><td><code>RI_CREDENTIAL_CHANGE_72H</code></td><td>Password or security credential changed in last 72 hours</td><td>70–90</td></tr>
+        <tr><td><code>RI_NAVIGATION_ANOMALY</code></td><td>Atypical navigation path before payment</td><td>45–70</td></tr>
+        <tr><td><code>RI_SESSION_DURATION_SHORT</code></td><td>Session duration below 5th percentile for this customer</td><td>35–60</td></tr>
+        <tr><td><code>RI_NEW_PAYEE_FIRST_TXN</code></td><td>Beneficiary not previously paid by this account</td><td>55–90</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tip">
+    <strong>ATO tuning note</strong>
+    The behavioral biometrics RIs are among the most predictive for ATO. If your institution hasn't deployed the behavioral SDK, ATO detection relies primarily on device and IP signals, which are less precise. Deploy the FraudShield Behavioral SDK on your web and mobile channels for materially better ATO catch rates.
+  </div>
+
+  <!-- APP FRAUD -->
+  <h2 id="app-fraud">Authorized Push Payment (APP) Fraud</h2>
+  <p>
+    In APP fraud, the legitimate account holder is manipulated into authorizing a payment to a fraudster-controlled account. The transaction is technically authorized by the customer — the fraud is in the social engineering that convinced them to make it. Common pretexts: fake HMRC/IRS tax demands, investment scams, romance scams, impersonation of bank staff or law enforcement.
+  </p>
+  <p>
+    APP fraud is the fastest-growing fraud typology on instant payment rails (RTP, FedNow) because irrevocability means there's no recall window once the payment is sent.
+  </p>
+
+  <h3>Behavioral pattern</h3>
+  <ul>
+    <li>Payment to a new, never-before-paid beneficiary account.</li>
+    <li>Account number or beneficiary name pasted (not typed) into the payment form — a strong indicator of social engineering instruction.</li>
+    <li>Unusually short session: customer arrived with the beneficiary details already in hand.</li>
+    <li>Amount in a range specifically below round-number thresholds ($9,800 rather than $10,000).</li>
+    <li>Narrative in the memo field includes unusual keywords: "HMRC," "tax refund," "investment," "crypto," "solicitor," "police hold."</li>
+    <li>Beneficiary account opened very recently (often within days of the fraud).</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th><th>Typical sub-score</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_COPY_PASTE_BENEFICIARY</code></td><td>Beneficiary account number was pasted, not typed</td><td>60–80</td></tr>
+        <tr><td><code>RI_NEW_PAYEE_FIRST_TXN</code></td><td>No prior payments to this beneficiary from any account</td><td>70–90</td></tr>
+        <tr><td><code>RI_MEMO_KEYWORD_RISK</code></td><td>NLP analysis of memo field detects social engineering keywords</td><td>50–85</td></tr>
+        <tr><td><code>RI_BENEFICIARY_ACCOUNT_AGE</code></td><td>Receiving account opened within last 7 days</td><td>75–95</td></tr>
+        <tr><td><code>RI_AMOUNT_ROUND_THRESHOLD</code></td><td>Amount designed to fall just under $10,000 CTR threshold (structuring signal)</td><td>55–75</td></tr>
+        <tr><td><code>RI_SESSION_DURATION_SHORT</code></td><td>Transaction initiated with unusually brief session</td><td>40–65</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CNP -->
+  <h2 id="card-cnp">Card-Not-Present (CNP) Fraud</h2>
+  <p>
+    CNP fraud uses stolen card credentials (card number, expiry, CVV) to make purchases in online or phone channels where the physical card isn't presented. Card data is typically obtained through phishing, data breaches, or dark-web markets.
+  </p>
+
+  <h3>Behavioral pattern</h3>
+  <ul>
+    <li>Transaction from an IP address in a different country than the cardholder's billing address.</li>
+    <li>High velocity of small test transactions (charge validation attempts) followed by a larger transaction if tests succeed.</li>
+    <li>Multiple card numbers attempted from the same device or IP (enumeration attack).</li>
+    <li>Purchase category inconsistent with the cardholder's historical spending profile.</li>
+    <li>High-value digital goods or gift cards — frequently liquidated by fraudsters without requiring physical delivery.</li>
+    <li>Shipping address differs from the billing address and is a freight forwarder or reshipping address.</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th><th>Typical sub-score</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_IP_COUNTRY_MISMATCH</code></td><td>IP country ≠ billing address country</td><td>50–80</td></tr>
+        <tr><td><code>RI_VELOCITY_CARD_ATTEMPTS_1H</code></td><td>Multiple card auth attempts in last hour (enumeration)</td><td>65–95</td></tr>
+        <tr><td><code>RI_DEVICE_FINGERPRINT_CHANGE</code></td><td>Transaction from new/unknown device</td><td>45–70</td></tr>
+        <tr><td><code>RI_MCC_ANOMALY</code></td><td>Merchant category inconsistent with cardholder spending history</td><td>40–65</td></tr>
+        <tr><td><code>RI_DIGITAL_GOODS_HIGH_VALUE</code></td><td>High-value purchase in digital goods or gift card category</td><td>55–80</td></tr>
+        <tr><td><code>RI_VPN_DETECTED</code></td><td>Transaction originating through VPN or proxy</td><td>35–60</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- DEPOSIT FRAUD -->
+  <h2 id="deposit-fraud">Check and Deposit Fraud</h2>
+  <p>
+    Check and deposit fraud encompasses check kiting (exploiting float between accounts), remote deposit capture (RDC) fraud (depositing the same check multiple times), return deposit item fraud, and cash deposit fraud. FraudShield AI monitors transactions across all deposit channels: branch, ATM, mobile (RDC), and offline (batch posting).
+  </p>
+
+  <h3>Base Transaction Activity (BTA) coverage</h3>
+  <p>
+    Deposit fraud detection uses channel-specific BTAs. Each BTA combination (channel + deposit type) has calibrated detection logic.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>BTA</th><th>Description</th><th>Key fraud patterns</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>M_DCK_D</code></td><td>Mobile app — check deposit (RDC)</td><td>Duplicate mobile deposit, altered check amount, deposited payee mismatch</td></tr>
+        <tr><td><code>A_DCK_D</code></td><td>ATM — check deposit</td><td>Envelope stuffing (depositing cash inside empty envelope), altered checks</td></tr>
+        <tr><td><code>B_DCK_D</code></td><td>Branch — check deposit</td><td>Counterfeit business checks, kiting between institutions</td></tr>
+        <tr><td><code>O_DCK_D</code></td><td>Offline — check deposit (batch)</td><td>Large-volume check kiting rings across multiple accounts</td></tr>
+        <tr><td><code>A_DCS_D</code></td><td>ATM — cash deposit</td><td>Short deposits (deposit less than claimed), staged deposits</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Key RIs for check kiting</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_KITING_PATTERN_SCORE</code></td><td>Cyclical deposit/withdrawal pattern between two accounts consistent with float exploitation</td></tr>
+        <tr><td><code>RI_VELOCITY_DEPOSIT_24H</code></td><td>Unusually high number of deposits in 24 hours</td></tr>
+        <tr><td><code>RI_RETURN_RATE_30D</code></td><td>High return rate on deposited items in last 30 days (R01, R02, R09 returns)</td></tr>
+        <tr><td><code>RI_WITHDRAWAL_BEFORE_CLEARANCE</code></td><td>Funds withdrawn before the deposited check has cleared</td></tr>
+        <tr><td><code>RI_DUPLICATE_CHECK_DEPOSIT</code></td><td>Check serial number or MICR line matches a previously deposited item</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ACH FRAUD -->
+  <h2 id="ach-fraud">ACH Fraud — Business Email Compromise and Unauthorized Debits</h2>
+  <p>
+    ACH fraud takes two main forms. In <strong>Business Email Compromise (BEC)</strong>, fraudsters compromise or spoof an email account to redirect ACH payroll or vendor payments to fraudster-controlled accounts. In <strong>unauthorized debit</strong>, stolen account credentials are used to originate ACH debits from victim accounts without authorization.
+  </p>
+
+  <h3>BEC pattern</h3>
+  <ul>
+    <li>ACH payee account number changes in the 24–72 hours before a regular payroll or vendor payment run.</li>
+    <li>Change instruction arrived via email; banking portal login for the change came from an IP inconsistent with the business's usual locations.</li>
+    <li>New beneficiary routing number routes to a bank associated with a high volume of mule account openings.</li>
+  </ul>
+
+  <h3>Unauthorized debit pattern</h3>
+  <ul>
+    <li>ACH debit initiated against an account that has no history of outgoing ACH transactions.</li>
+    <li>Originator company ID not previously seen on this account.</li>
+    <li>Debit amount just below the balance available — designed to drain the account.</li>
+    <li>Multiple debit attempts across short intervals (velocity) — consistent with credential testing.</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_PAYEE_CHANGE_BEFORE_REGULAR_RUN</code></td><td>Beneficiary account changed within 72 hours of a recurring payment</td></tr>
+        <tr><td><code>RI_NEW_ORIGINATOR_COMPANY_ID</code></td><td>ACH company ID not previously seen on this account</td></tr>
+        <tr><td><code>RI_ACCOUNT_LIFECYCLE</code></td><td>Originator account has no prior outgoing ACH history</td></tr>
+        <tr><td><code>RI_PAYEE_HIGH_RISK_ROUTING</code></td><td>Destination routing number associated with elevated mule account risk</td></tr>
+        <tr><td><code>RI_AMOUNT_BALANCE_DRAIN</code></td><td>Debit amount within 5% of available balance — drain pattern</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- MULE -->
+  <h2 id="mule">Money Mule Activity</h2>
+  <p>
+    Money mule accounts receive proceeds from fraud committed against other victims and pass the funds onward — either knowingly (complicit mules) or unknowingly (recruited via job scams). Mule detection in FraudShield AI works in two directions: detecting when an account is <em>sending</em> to a mule account, and detecting when an account <em>is</em> acting as a mule.
+  </p>
+
+  <h3>Mule receiver pattern (account is a mule)</h3>
+  <ul>
+    <li>Account was recently opened (Early Account Monitoring period: &lt;90 days).</li>
+    <li>Account receives multiple inbound transfers from unrelated senders in a short window, then immediately sends the funds outward (pass-through pattern).</li>
+    <li>Inbound funds arrive via multiple rails (RTP, ACH, wire) and are consolidated before rapid outbound movement.</li>
+    <li>The account's entity profile (address, device, IP) is shared with other recently opened accounts.</li>
+    <li>The outbound beneficiary is in a high-risk jurisdiction or a known mule destination account.</li>
+  </ul>
+
+  <h3>Key RIs for mule detection</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_MULE_NETWORK_SCORE</code></td><td>Network graph centrality score — account connected to known mule nodes</td></tr>
+        <tr><td><code>RI_RAPID_MOVEMENT_THROUGH_ACCOUNT</code></td><td>Funds received and re-sent within &lt;24 hours (layering signal)</td></tr>
+        <tr><td><code>RI_SHARED_DEVICE_CLUSTER</code></td><td>Device or IP shared across &gt;3 unrelated accounts</td></tr>
+        <tr><td><code>RI_INBOUND_MULTI_SOURCE_24H</code></td><td>Multiple unrelated inbound senders within 24 hours</td></tr>
+        <tr><td><code>RI_ACCOUNT_AGE_DAYS</code></td><td>Account &lt;90 days old (Early Account Monitoring)</td></tr>
+        <tr><td><code>RI_MULE_ACCOUNT_CONFIRMED</code></td><td>Destination account confirmed as mule by Early Warning Services or prior confirmed fraud</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SYNTHETIC ID -->
+  <h2 id="synthetic-id">Synthetic Identity Fraud</h2>
+  <p>
+    Synthetic identity fraud uses a fabricated identity — often combining a real Social Security number (usually belonging to a child, elderly person, or recent immigrant with no credit file) with a fake name and address — to open accounts and build credit before committing "bust-out" fraud. Synthetic identities are the fastest-growing fraud type in the US.
+  </p>
+
+  <h3>Key signals</h3>
+  <ul>
+    <li>SSN issued recently but tied to a name and date of birth that don't match SSA records.</li>
+    <li>Thin credit file or no credit history associated with the SSN.</li>
+    <li>Identity verification score below the configured synthetic ID threshold (sourced from Experian or Socure enrichment).</li>
+    <li>Address associated with multiple other recently opened accounts (shared address cluster).</li>
+    <li>IP and device at application inconsistent with the stated residential address.</li>
+    <li>After account opening: rapid credit utilization build-up followed by a sudden increase in cash advances or transfers before the account is abandoned.</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_SYNTHETIC_ID_SCORE</code></td><td>Identity verification provider's synthetic identity probability score</td></tr>
+        <tr><td><code>RI_ADDRESS_MISMATCH</code></td><td>Stated address doesn't match address associated with SSN in reference databases</td></tr>
+        <tr><td><code>RI_SHARED_DEVICE_CLUSTER</code></td><td>Application device previously used for other synthetic identity applications</td></tr>
+        <tr><td><code>RI_CREDIT_BUST_OUT_PATTERN</code></td><td>Rapid utilization to maximum credit limit followed by cash advance or balance transfer — bust-out signal</td></tr>
+        <tr><td><code>RI_ACCOUNT_AGE_DAYS</code></td><td>Account &lt;90 days old with high transaction velocity</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- FIRST PARTY -->
+  <h2 id="first-party">First-Party Fraud</h2>
+  <p>
+    First-party fraud is committed by a legitimate, correctly identified customer who intentionally misuses their account or misrepresents their situation to obtain a financial benefit. Unlike identity fraud, the person's real identity is known. Common forms include intentional overdraft abuse, false dispute claims, application fraud (overstating income or assets), and deliberate default.
+  </p>
+
+  <h3>Key signals</h3>
+  <ul>
+    <li>Dispute filed for a transaction where behavioral data shows the cardholder was present (device, location).</li>
+    <li>Repeated dispute patterns across multiple accounts — serial disputer.</li>
+    <li>Large cash advance or balance transfer shortly before declared bankruptcy or account default.</li>
+    <li>Income stated at application is inconsistent with transaction data over the first 90 days.</li>
+    <li>Application data (income, employer, address) matches a pattern flagged by the identity verification provider as inflated or fabricated.</li>
+  </ul>
+
+  <!-- CROSS BORDER -->
+  <h2 id="cross-border">Cross-Border Wire Fraud</h2>
+  <p>
+    Cross-border wire fraud targets high-value SWIFT or international Fedwire transactions. The typology typically involves ATO as the entry point, followed by rapid outbound wire transfers to foreign accounts in jurisdictions with limited recovery prospects. Fraudsters specifically target international transfers because recall is complex, slow, and often unsuccessful once funds leave the domestic banking system.
+  </p>
+
+  <h3>Behavioral pattern</h3>
+  <ul>
+    <li>ATO signals at login (new device, foreign IP, credential change).</li>
+    <li>First international wire ever sent from this account, or first to this specific destination country.</li>
+    <li>Destination country is on the FATF grey list or institutional high-risk country list.</li>
+    <li>Transfer amount at or near the account's daily wire limit — designed to maximize loss in a single transaction.</li>
+    <li>Beneficiary name or bank details changed in the portal shortly before the wire is submitted.</li>
+  </ul>
+
+  <h3>Key RIs</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Risk Indicator</th><th>Signal</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>RI_PAYEE_HIGH_RISK_COUNTRY</code></td><td>Destination country on FATF grey/black list or institutional high-risk list</td></tr>
+        <tr><td><code>RI_FIRST_INTERNATIONAL_WIRE</code></td><td>No prior international wire transfers from this account</td></tr>
+        <tr><td><code>RI_AMOUNT_SPIKE_3SD</code></td><td>Amount significantly above historical wire amounts for this account</td></tr>
+        <tr><td><code>RI_BENEFICIARY_DETAIL_CHANGE_SAME_SESSION</code></td><td>Beneficiary account or name changed in the same session as the wire submission</td></tr>
+        <tr><td><code>RI_IP_COUNTRY_MISMATCH</code></td><td>IP country matches destination country — suggests fraudster is the initiator</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="warning">
+    <strong>Wire recall success rates drop sharply after 24 hours</strong>
+    For cross-border wire fraud, the window to initiate a successful recall via SWIFT gSRP (global Stop and Recall Program) is typically 24–48 hours. CRITICAL-scored international wire alerts should be treated as time-critical. Make sure your alert SLA for cross-border CRITICAL alerts is 2 hours or less.
+  </div>
+
+</main>
+</body>
+</html>

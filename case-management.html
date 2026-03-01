@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alert Investigation &amp; Case Management — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Alert Investigation &amp; Case Management
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+  <a href="case-management.html" class="active">Alert Investigation &amp; Case Management</a>
+
+  <div class="nav-section">Compliance</div>
+  <a href="customer-risk.html">Customer Risk &amp; AML Integration</a>
+  <a href="fraud-typologies.html">Fraud Typology Reference</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Alert Investigation &amp; Case Management</h1>
+  <p class="topic-meta">
+    <span>Audience: Fraud Operations, Fraud Analysts, Team Leads</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    FraudShield AI generates an alert for every transaction that scores above the configured HIGH threshold. Case Management is the operational layer that takes those alerts from creation through to final disposition: routing them to the right analyst, supporting the investigation, capturing the outcome, and feeding results back into the model.
+  </p>
+  <p>
+    The Case Manager module includes an <strong>Advanced Work Allocation (AWA)</strong> engine, investigation workspaces, case creation and linking tools, and a regulatory filing integration for SAR/CTR submissions. This page describes the full alert lifecycle.
+  </p>
+
+  <div class="note">
+    <strong>Case Manager is a separate licensed module</strong>
+    The Case Manager described here requires the FraudShield Case Manager license in addition to the base AI Engine. If your deployment uses a third-party case management system, integrate via the <a href="api-integration.html">Alert Webhook API</a>.
+  </div>
+
+  <!-- ALERT LIFECYCLE -->
+  <h2 id="alert-lifecycle">Alert lifecycle</h2>
+
+  <div class="arch-diagram">
+    <div class="arch-title">Alert lifecycle — from scoring to disposition</div>
+<pre>
+Transaction scored → Decision: STEP-UP or BLOCK
+        │
+        ▼
+Alert created (alert_id, risk_score, BTA, top RIs, transaction data)
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              WORK ALLOCATION ENGINE (AWA)                       │
+│  Evaluates: alert type, channel, amount, language, geography,   │
+│  customer tier, analyst skill set, queue capacity, SLA deadline │
+│                                                                 │
+│   Route to individual queue ──► Analyst sees alert in queue     │
+│   Route to open pool       ──► Any eligible analyst can claim   │
+│   GetNext                  ──► Highest-priority alert pushed    │
+│                                to the most available analyst    │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │
+                        ▼
+              Analyst opens Alert Workspace
+                 ┌──────────────────────────────────┐
+                 │ Transaction details               │
+                 │ Explainability (top contributing  │
+                 │   RIs + display text)             │
+                 │ Account profile & history         │
+                 │ Customer record (CDD tab)         │
+                 │ Prior alert history               │
+                 │ Linked cases                      │
+                 └──────────────────────────────────┘
+                        │
+                 ┌──────┴──────────────┐
+                 │ Investigation tools │
+                 │  · Add to case      │
+                 │  · Network graph    │
+                 │  · Request info     │
+                 │  · Add note         │
+                 │  · Attach document  │
+                 └──────┬──────────────┘
+                        │
+                        ▼
+                   Disposition selected
+         ┌──────────────┬────────────────┬──────────────┐
+         │              │                │              │
+  Confirmed       Suspicious         False           Duplicate
+   Fraud          No Action         Positive
+         │              │                │              │
+         ▼              ▼                ▼              ▼
+   Escalate /    Soft-label for    FPR metric +    Deduplicate
+   SAR review    monitoring        suppression      and close
+                                   candidate
+</pre>
+  </div>
+
+  <!-- AWA ENGINE -->
+  <h2 id="awa">Advanced Work Allocation (AWA)</h2>
+  <p>
+    The AWA engine ensures every alert is routed to the analyst best positioned to resolve it quickly and accurately. Routing decisions are based on a policy matrix that matches alert attributes to analyst skills, availability, and business unit assignment.
+  </p>
+
+  <h3>AWA routing factors</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Factor</th>
+          <th>Alert attributes considered</th>
+          <th>Analyst attributes considered</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Fraud type / skill</strong></td>
+          <td>BTA, transaction type, top RI category (e.g. ATO, mule, card CNP)</td>
+          <td>Skill set (e.g. Wire Fraud, Card Fraud, RTP Mule), proficiency level per skill</td>
+        </tr>
+        <tr>
+          <td><strong>Priority</strong></td>
+          <td>Risk score, transaction amount, CRITICAL vs. HIGH level, time-sensitive rails (RTP/FedNow)</td>
+          <td>Current queue depth, in-progress case count</td>
+        </tr>
+        <tr>
+          <td><strong>Geography / language</strong></td>
+          <td>Customer home country, beneficiary country, branch region</td>
+          <td>Language certification, regional specialization</td>
+        </tr>
+        <tr>
+          <td><strong>Customer tier</strong></td>
+          <td>VIP flag, HNW segment, business vs. retail</td>
+          <td>VIP handling certification, relationship manager liaison</td>
+        </tr>
+        <tr>
+          <td><strong>SLA deadline</strong></td>
+          <td>Time since alert creation, regulatory reporting deadlines (SAR 30-day window)</td>
+          <td>SLA capacity, supervisor override capability</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>GetNext</h3>
+  <p>
+    When an analyst selects <strong>Get Next</strong> in the Case Manager interface, the AWA engine evaluates all pending alerts in the open pool and pushes the single highest-priority alert for which the analyst is qualified. This prevents cherry-picking of low-complexity alerts and ensures SLA-critical items are resolved first.
+  </p>
+
+  <h3>Supervisor assignment</h3>
+  <p>
+    Supervisors can view the full open-pool queue, see per-analyst workload metrics, and manually assign or reassign alerts. Alerts that remain unassigned beyond a configurable SLA threshold are escalated to the supervisor queue automatically.
+  </p>
+
+  <!-- INVESTIGATION WORKSPACE -->
+  <h2 id="investigation-workspace">Investigation workspace</h2>
+  <p>
+    When an analyst opens an alert, the investigation workspace surfaces all relevant data in a single view. Analysts don't need to switch between systems to build an investigation picture.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Workspace tab</th>
+          <th>Content</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Alert details</strong></td>
+          <td>Transaction data, risk score, BTA, model version, enrichment summary, and the top 5 Risk Indicator contributors with display text and raw values.</td>
+        </tr>
+        <tr>
+          <td><strong>Account history</strong></td>
+          <td>Rolling transaction history (30/90 days), prior alerts on this account, existing open cases, average transaction amounts and velocity.</td>
+        </tr>
+        <tr>
+          <td><strong>Customer record</strong></td>
+          <td>Customer profile, CDD risk score, PEP/beneficial ownership flags, account relationships, and open CDD reviews. Sourced from the Customer Risk module.</td>
+        </tr>
+        <tr>
+          <td><strong>Network graph</strong></td>
+          <td>Entity relationship graph showing shared devices, IPs, payees, and beneficiary accounts. Highlights known mule network members and previously confirmed fraud links.</td>
+        </tr>
+        <tr>
+          <td><strong>Linked cases</strong></td>
+          <td>Other alerts and cases associated with the same customer, beneficiary account, device, or IP address. Supports pattern recognition across multiple fraud events.</td>
+        </tr>
+        <tr>
+          <td><strong>Audit trail</strong></td>
+          <td>Timestamped log of all actions taken on this alert: opens, notes, case links, status changes. Immutable once written.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CASE CREATION -->
+  <h2 id="case-creation">Case creation and linking</h2>
+  <p>
+    Analysts can link a single alert to an existing case or create a new case. Cases group related alerts, allowing the investigation of coordinated fraud patterns (such as a mule network or an organized ring) under a single investigative record.
+  </p>
+
+  <h3>Case types</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Case type</th>
+          <th>Description</th>
+          <th>Common use</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Single-alert case</strong></td>
+          <td>One case per alert. Used when the alert represents a standalone event with no known related activity.</td>
+          <td>One-off ATO event, isolated high-value wire</td>
+        </tr>
+        <tr>
+          <td><strong>Multi-alert case</strong></td>
+          <td>Multiple alerts grouped under one case. Alerts may span accounts, customers, or time periods.</td>
+          <td>Mule network investigation, serial first-party fraud</td>
+        </tr>
+        <tr>
+          <td><strong>Regulatory case</strong></td>
+          <td>Cases created specifically to support SAR or CTR filing. Contains a structured narrative section aligned to FinCEN BSA e-filing requirements.</td>
+          <td>SAR filing within 30 days of suspicion, CTR for cash transactions &gt; $10,000</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- INVESTIGATION ACTIONS -->
+  <h2 id="investigation-actions">Investigation actions</h2>
+  <p>
+    During investigation, analysts can take the following actions from the workspace:
+  </p>
+
+  <dl>
+    <dt>Add note</dt>
+    <dd>Free-text note attached to the alert or case. Notes are time-stamped, analyst-attributed, and included in the audit trail. Required for SAR narrative drafts.</dd>
+    <dt>Request information</dt>
+    <dd>Sends a structured information request to the customer's relationship manager or branch. Tracks status (pending / received / overdue) and logs the response.</dd>
+    <dt>Attach document</dt>
+    <dd>Uploads supporting evidence (transaction receipts, ID documents, call recordings, screenshots). Documents are stored in the case record and retained per the document retention policy.</dd>
+    <dt>Place hold</dt>
+    <dd>Flags the associated account for a temporary transaction hold pending investigation outcome. Requires supervisor approval for accounts above a configured balance threshold.</dd>
+    <dt>Escalate</dt>
+    <dd>Routes the case to a senior analyst or a specialized fraud investigation team. Escalation reason is logged and SLA clock resets to the escalation-tier target.</dd>
+    <dt>Network expand</dt>
+    <dd>Adds related entities (shared device, beneficiary account, IP address) to the network graph and generates linked alerts for any of those entities currently under investigation.</dd>
+  </dl>
+
+  <!-- DISPOSITION AND REPORTING -->
+  <h2 id="disposition-reporting">Disposition and regulatory reporting</h2>
+  <p>
+    When investigation is complete, the analyst selects a disposition and completes any required regulatory reporting steps.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <strong>Select disposition</strong>
+        <p>Choose from: <strong>Confirmed Fraud</strong>, <strong>Suspicious — No Action</strong>, <strong>False Positive</strong>, or <strong>Duplicate</strong>. All dispositions require a reason code and optional free-text note.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Fraud loss recording (Confirmed Fraud only)</strong>
+        <p>Enter the fraud loss amount, recovery amount (if any), and fraud category code. Loss data is written to the fraud loss register and fed into model performance reporting.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>SAR assessment</strong>
+        <p>For Confirmed Fraud and Suspicious dispositions, the system prompts: "Does this activity require a SAR filing?" If yes, a regulatory case is created and the 30-day filing clock starts. The analyst is assigned as the SAR owner.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>SAR narrative drafting</strong>
+        <p>The SAR workspace pre-populates the FinCEN SAR form fields from the case data: account information, suspicious activity type, date range, and dollar amount. The analyst completes the narrative section, which must describe the activity in plain language. The AI narrative assist tool can generate a draft narrative from case notes for analyst review and edit.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Supervisor review and SAR approval</strong>
+        <p>The completed SAR is routed to the BSA Officer for review and approval. Approval triggers FinCEN BSA e-filing via the integrated STAR module. Confirmation receipt is attached to the case record.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Case closure and feedback loop</strong>
+        <p>Once filed or closed without regulatory action, the case is marked closed. Disposition data is written to the model feedback dataset. The analyst's disposition is used in the next retraining cycle's label set.</p>
+      </div>
+    </li>
+  </ol>
+
+  <!-- SLA MANAGEMENT -->
+  <h2 id="sla-management">SLA management</h2>
+  <p>
+    The AWA engine tracks SLA compliance for every alert and case. Configurable SLA targets are set per alert risk level and BTA.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Alert level</th>
+          <th>Default investigation SLA</th>
+          <th>SAR filing SLA</th>
+          <th>Escalation trigger</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="score-badge badge-critical">CRITICAL</span></td>
+          <td>4 business hours</td>
+          <td>30 calendar days from suspicion</td>
+          <td>At 2 hours unworked</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-high">HIGH</span></td>
+          <td>1 business day</td>
+          <td>30 calendar days from suspicion</td>
+          <td>At 4 hours unworked</td>
+        </tr>
+        <tr>
+          <td><span class="score-badge badge-medium">MEDIUM</span> (batch review)</td>
+          <td>3 business days</td>
+          <td>N/A (batch review only)</td>
+          <td>At end of day 2</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="warning">
+    <strong>SAR filing deadline is a regulatory requirement</strong>
+    Under the Bank Secrecy Act, SARs must be filed within 30 calendar days of the date the institution becomes aware of the suspicious activity, or 60 days if no suspect is identified initially. Missing this deadline is a BSA violation. FraudShield Case Manager tracks the filing deadline from the moment a SAR assessment is triggered.
+  </div>
+
+</main>
+</body>
+</html>
