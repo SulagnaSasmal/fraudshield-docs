@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk Scoring Model — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Risk Scoring Model
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html" class="active">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Risk Scoring Model</h1>
+  <p class="topic-meta">
+    <span>Audience: Fraud Operations, Data Science</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    The FraudShield AI Engine risk scoring model produces a composite <strong>Risk Score</strong> (0–1000) for every transaction in real time. The score aggregates signals from over 200 Risk Indicators (RIs), behavioral profile data, and one or more ML detection models tuned for specific transaction channels and fraud typologies.
+  </p>
+
+  <div class="note">
+    <strong>Real-time only</strong>
+    The risk score is always calculated synchronously, before a transaction is authorized or posted. Decisions returned by the Decisioning Engine are applied inline, not retrospectively.
+  </div>
+
+  <!-- SCORE ARCHITECTURE -->
+  <h2 id="score-architecture">Score architecture</h2>
+  <p>
+    The composite risk score is built in three layers. Each layer feeds into the next before the final score is produced.
+  </p>
+
+  <div class="arch-diagram">
+    <div class="arch-title">Score computation layers</div>
+<pre>
+Layer 1: Risk Indicators (RIs)
+  ─────────────────────────────────────────────────────────────────
+  Raw transaction + enrichment data + behavioral profiles
+  → 200+ RIs calculated (each RI returns a sub-score 0–100)
+  Examples:
+    RI_VELOCITY_TRANSFER_1H     : 78   (high velocity in last 1 hour)
+    RI_NEW_PAYEE_FIRST_TXN      : 90   (new beneficiary, first transaction)
+    RI_IP_COUNTRY_MISMATCH      : 65   (IP country ≠ account country)
+    RI_DEVICE_FINGERPRINT_CHANGE: 55   (new device not seen before)
+    RI_AMOUNT_SPIKE_3SD         : 82   (amount > 3 std deviations above mean)
+
+Layer 2: Detection Models (channel-specific ML)
+  ─────────────────────────────────────────────────────────────────
+  RI sub-scores + raw features → XGBoost / Neural Network model
+  → Model output: fraud probability (0.00–1.00)
+  → Scaled to 0–950 within the composite score
+
+Layer 3: Composite Risk Score
+  ─────────────────────────────────────────────────────────────────
+  Weighted combination of model output + policy rule boosts
+  → Final Risk Score: 0–1000
+  → Risk level: LOW / MEDIUM / HIGH / CRITICAL
+  → Decision: APPROVE / STEP-UP / REVIEW / BLOCK
+</pre>
+  </div>
+
+  <!-- RISK INDICATORS -->
+  <h2 id="risk-indicators">Risk Indicators (RIs)</h2>
+  <p>
+    A Risk Indicator is a calculated signal derived from the current transaction, historical behavioral profile data, or external enrichment. Each RI produces a numeric sub-score (0–100) that represents the degree of anomaly or risk for that specific signal.
+  </p>
+
+  <h3>RI categories</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Description</th>
+          <th>Example RIs</th>
+          <th>Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Velocity</strong></td>
+          <td>Transaction frequency and volume over rolling time windows (1H, 4H, 24H, 7D, 30D)</td>
+          <td><code>RI_VELOCITY_TRANSFER_1H</code>, <code>RI_COUNT_PAYEES_24H</code></td>
+          <td>38</td>
+        </tr>
+        <tr>
+          <td><strong>Amount anomaly</strong></td>
+          <td>Deviation of transaction amount from historical mean and percentiles for the entity</td>
+          <td><code>RI_AMOUNT_SPIKE_3SD</code>, <code>RI_AMOUNT_ROUND_NUMBER</code></td>
+          <td>24</td>
+        </tr>
+        <tr>
+          <td><strong>Beneficiary / payee</strong></td>
+          <td>New payee, high-risk payee country, payee account age, and payee network analysis</td>
+          <td><code>RI_NEW_PAYEE_FIRST_TXN</code>, <code>RI_PAYEE_HIGH_RISK_COUNTRY</code></td>
+          <td>31</td>
+        </tr>
+        <tr>
+          <td><strong>Device &amp; channel</strong></td>
+          <td>Device fingerprint changes, new browser, unusual channel for entity, channel switching</td>
+          <td><code>RI_DEVICE_FINGERPRINT_CHANGE</code>, <code>RI_CHANNEL_SWITCH_SAME_SESSION</code></td>
+          <td>27</td>
+        </tr>
+        <tr>
+          <td><strong>Network / IP</strong></td>
+          <td>IP geolocation mismatch, VPN/proxy detection, impossible travel, TOR exit node</td>
+          <td><code>RI_IP_COUNTRY_MISMATCH</code>, <code>RI_TOR_EXIT_NODE</code></td>
+          <td>19</td>
+        </tr>
+        <tr>
+          <td><strong>Behavioral biometrics</strong></td>
+          <td>Keystroke dynamics, mouse movement patterns, session navigation anomalies</td>
+          <td><code>RI_KEYSTROKE_ANOMALY_SCORE</code>, <code>RI_SESSION_NAVIGATION_BOT</code></td>
+          <td>22</td>
+        </tr>
+        <tr>
+          <td><strong>Account lifecycle</strong></td>
+          <td>Account age, recent credential change, dormancy break, new payee ratio</td>
+          <td><code>RI_ACCOUNT_AGE_DAYS</code>, <code>RI_CREDENTIAL_CHANGE_72H</code></td>
+          <td>18</td>
+        </tr>
+        <tr>
+          <td><strong>Network graph</strong></td>
+          <td>Entity-to-entity relationships, mule network indicators, shared device/IP clustering</td>
+          <td><code>RI_MULE_NETWORK_SCORE</code>, <code>RI_SHARED_DEVICE_CLUSTER</code></td>
+          <td>27</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- DETECTION MODELS -->
+  <h2 id="detection-models">Detection models</h2>
+  <p>
+    Detection models are channel- and typology-specific ML models that transform RI values and raw transaction features into a fraud probability score. Each model is trained on labeled fraud data for its specific detection domain.
+  </p>
+
+  <h3>Available detection models</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Model ID</th>
+          <th>Detection domain</th>
+          <th>Algorithm</th>
+          <th>Channels</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>MDL_WIRE_ATO</code></td>
+          <td>Account Takeover — Wire / RTGS</td>
+          <td>XGBoost</td>
+          <td>Web, Mobile</td>
+          <td><span class="score-badge badge-low">Active</span></td>
+        </tr>
+        <tr>
+          <td><code>MDL_ACH_FRAUD</code></td>
+          <td>ACH fraud — debit origination</td>
+          <td>XGBoost + rule ensemble</td>
+          <td>ACH origination</td>
+          <td><span class="score-badge badge-low">Active</span></td>
+        </tr>
+        <tr>
+          <td><code>MDL_RTP_MULE</code></td>
+          <td>Money mule — RTP / FedNow</td>
+          <td>Neural network (LSTM)</td>
+          <td>RTP, FedNow</td>
+          <td><span class="score-badge badge-low">Active</span></td>
+        </tr>
+        <tr>
+          <td><code>MDL_CARD_CNP</code></td>
+          <td>Card-not-present fraud</td>
+          <td>Gradient Boosting</td>
+          <td>eCommerce, API</td>
+          <td><span class="score-badge badge-low">Active</span></td>
+        </tr>
+        <tr>
+          <td><code>MDL_1PF_APPFRAUD</code></td>
+          <td>First-party fraud — application</td>
+          <td>Logistic Regression + XGBoost stacking</td>
+          <td>New account, loan origination</td>
+          <td><span class="score-badge badge-low">Active</span></td>
+        </tr>
+        <tr>
+          <td><code>MDL_INTERNAL_EMP</code></td>
+          <td>Insider / employee fraud</td>
+          <td>Isolation Forest + XGBoost</td>
+          <td>Internal banking systems</td>
+          <td><span class="score-badge badge-medium">Beta</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tip">
+    <strong>Model selection is automatic</strong>
+    FraudShield AI selects the appropriate detection model based on the <code>transactionType</code> and <code>channel</code> fields in the incoming transaction. You don't need to specify a model ID in the API request.
+  </div>
+
+  <!-- SCORE RANGES -->
+  <h2 id="score-ranges">Score ranges and risk levels</h2>
+  <p>
+    The composite Risk Score maps to four risk levels. The default decision thresholds below apply out of the box. Your fraud operations team should tune these thresholds to match your institution's risk appetite.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Score range</th>
+          <th>Risk level</th>
+          <th>Default decision</th>
+          <th>Typical action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>0 – 299</strong></td>
+          <td><span class="score-badge badge-low">LOW</span></td>
+          <td>APPROVE</td>
+          <td>Transaction passes through. No alert generated.</td>
+        </tr>
+        <tr>
+          <td><strong>300 – 549</strong></td>
+          <td><span class="score-badge badge-medium">MEDIUM</span></td>
+          <td>APPROVE</td>
+          <td>Transaction passes. Soft alert logged for batch review.</td>
+        </tr>
+        <tr>
+          <td><strong>550 – 749</strong></td>
+          <td><span class="score-badge badge-high">HIGH</span></td>
+          <td>STEP-UP / REVIEW</td>
+          <td>Challenge authentication presented or alert sent to Case Manager.</td>
+        </tr>
+        <tr>
+          <td><strong>750 – 1000</strong></td>
+          <td><span class="score-badge badge-critical">CRITICAL</span></td>
+          <td>BLOCK</td>
+          <td>Transaction blocked. Real-time alert to Case Manager and SIEM.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="warning">
+    <strong>Thresholds are configurable</strong>
+    Default thresholds are a starting point only. For production deployments, calibrate thresholds against your false positive rate (FPR) and false negative rate (FNR) targets. See <a href="threshold-tuning.html">Threshold Tuning</a> for the full process.
+  </div>
+
+  <!-- SCORING WORKFLOW -->
+  <h2 id="scoring-workflow">Scoring workflow</h2>
+
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <strong>Transaction received</strong>
+        <p>The core banking or payment system sends the transaction event to the FraudShield Scoring API (<code>POST /api/v3/score</code>) synchronously before authorization.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Enrichment</strong>
+        <p>The platform calls configured enrichment providers (IP intelligence, device fingerprinting, behavioral biometrics, identity verification) and appends enrichment data to the transaction object.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Profile lookup</strong>
+        <p>The behavioral profile store is queried for account-level and entity-level aggregates: rolling counts, amounts, payee lists, and session history.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>RI calculation</strong>
+        <p>All applicable Risk Indicators are evaluated using the enriched transaction + profile data. Each RI returns a sub-score (0–100). High-value RIs are flagged for the explainability output.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>ML model scoring</strong>
+        <p>The channel-specific detection model ingests RI values and raw features, returning a fraud probability that is scaled into the composite score range.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Policy rule evaluation</strong>
+        <p>Configurable policy rules in the Decisioning Engine can boost or suppress the score, or override the decision outright (for example, a regulatory hold or whitelist match).</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Decision returned</strong>
+        <p>The scoring API returns the composite score, risk level, decision, top contributing RIs, and a correlation ID — typically within 80–150 ms end to end.</p>
+      </div>
+    </li>
+  </ol>
+
+  <!-- MULTI-CHANNEL -->
+  <h2 id="multi-channel">Multi-channel model coverage</h2>
+  <p>
+    FraudShield AI models are trained and calibrated per channel. The same transaction amount and beneficiary may carry very different risk scores depending on whether the transaction originated via mobile push payment, web banking, or a branch instruction. Channel context is always a first-class feature.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Base Transaction Activity (BTA)</th>
+          <th>Primary detection models</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Web banking</td>
+          <td><code>WEB_EXTERNAL_TRANSFER</code>, <code>WEB_BILL_PAY</code></td>
+          <td><code>MDL_WIRE_ATO</code>, <code>MDL_ACH_FRAUD</code></td>
+        </tr>
+        <tr>
+          <td>Mobile app</td>
+          <td><code>MOB_EXTERNAL_TRANSFER</code>, <code>MOB_P2P</code></td>
+          <td><code>MDL_WIRE_ATO</code>, <code>MDL_RTP_MULE</code></td>
+        </tr>
+        <tr>
+          <td>ACH origination</td>
+          <td><code>ACH_CREDIT_ORIGINATION</code>, <code>ACH_DEBIT_ORIGINATION</code></td>
+          <td><code>MDL_ACH_FRAUD</code></td>
+        </tr>
+        <tr>
+          <td>RTP / FedNow</td>
+          <td><code>RTP_SEND</code>, <code>FEDNOW_SEND</code></td>
+          <td><code>MDL_RTP_MULE</code>, <code>MDL_WIRE_ATO</code></td>
+        </tr>
+        <tr>
+          <td>Card (CNP)</td>
+          <td><code>CARD_CNP_PURCHASE</code>, <code>CARD_CNP_AUTH</code></td>
+          <td><code>MDL_CARD_CNP</code></td>
+        </tr>
+        <tr>
+          <td>New account / origination</td>
+          <td><code>NEW_ACCOUNT_OPEN</code>, <code>LOAN_APPLICATION</code></td>
+          <td><code>MDL_1PF_APPFRAUD</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+</body>
+</html>

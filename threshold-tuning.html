@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Threshold Tuning — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Threshold Tuning
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html" class="active">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Threshold Tuning</h1>
+  <p class="topic-meta">
+    <span>Audience: Fraud Operations, Data Science</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    Threshold tuning is the process of calibrating score decision thresholds, Risk Indicator (RI) score scales, and RI weights so that the fraud detection system performs optimally for your institution's portfolio. Tuning balances the fraud catch rate (sensitivity) against the false positive rate — the two key performance indicators for any fraud detection system.
+  </p>
+
+  <div class="note">
+    <strong>Tuning cadence</strong>
+    FraudShield AI requires a formal tuning review at least quarterly. Fraud patterns shift over time: a model tuned in Q1 may be over- or under-alerting by Q3 without adjustment. New product launches, channel expansions, or large-scale fraud events should trigger an out-of-cycle review.
+  </div>
+
+  <!-- KEY CONCEPTS -->
+  <h2 id="key-concepts">Key tuning concepts</h2>
+
+  <dl>
+    <dt>False Positive Rate (FPR)</dt>
+    <dd>The percentage of legitimate transactions incorrectly scored as HIGH or CRITICAL. High FPR increases customer friction and operational cost.</dd>
+    <dt>False Negative Rate (FNR)</dt>
+    <dd>The percentage of fraudulent transactions scored below the REVIEW threshold. High FNR means fraud passes through undetected.</dd>
+    <dt>Decision threshold</dt>
+    <dd>The composite score value at which the risk level changes (e.g., the boundary between MEDIUM and HIGH). Raising a threshold reduces FPR at the cost of higher FNR.</dd>
+    <dt>RI score scale</dt>
+    <dd>The mapping function that converts a raw RI value (e.g., transaction velocity = 12 transactions/hour) into a sub-score (0–100). Score scales can be numeric, Boolean, or string-based.</dd>
+    <dt>RI weight</dt>
+    <dd>The relative importance of an RI in the composite score calculation. Higher-weight RIs have more influence over the final score.</dd>
+  </dl>
+
+  <!-- SCORE SCALE TYPES -->
+  <h2 id="score-scales">RI score scale types</h2>
+  <p>
+    Every RI uses one of three score scale types to map its raw value to a 0–100 sub-score. Scale definitions live in <code>ri-config.ini</code>.
+  </p>
+
+  <h3>Numeric scale</h3>
+  <p>
+    Maps a numeric RI value to a score using range brackets. Use this for RIs with continuous numeric outputs (velocity counts, amount values, days elapsed).
+  </p>
+
+  <div class="code-label">ri-config.ini — numeric scale example (RI_VELOCITY_TRANSFER_1H)</div>
+  <div class="code-block">
+<span class="c-cmt">[RI_VELOCITY_TRANSFER_1H]</span>
+scale_type = <span class="c-str">numeric</span>
+<span class="c-cmt"># Format: &lt;upper_bound&gt; → &lt;sub-score&gt;</span>
+scale_0_2   = <span class="c-num">0</span>     <span class="c-cmt"># 0–2 transactions/hour → score 0 (normal)</span>
+scale_3_5   = <span class="c-num">20</span>    <span class="c-cmt"># 3–5 → score 20 (slightly elevated)</span>
+scale_6_10  = <span class="c-num">55</span>    <span class="c-cmt"># 6–10 → score 55 (elevated)</span>
+scale_11_20 = <span class="c-num">80</span>    <span class="c-cmt"># 11–20 → score 80 (high)</span>
+scale_21_up = <span class="c-num">100</span>   <span class="c-cmt"># 21+ → score 100 (critical velocity)</span>
+weight = <span class="c-num">1.4</span>
+  </div>
+
+  <h3>Boolean scale</h3>
+  <p>
+    For binary RIs — a condition is either true or false. The scale assigns a fixed score when true and 0 when false.
+  </p>
+
+  <div class="code-label">ri-config.ini — boolean scale example (RI_TOR_EXIT_NODE)</div>
+  <div class="code-block">
+<span class="c-cmt">[RI_TOR_EXIT_NODE]</span>
+scale_type = <span class="c-str">boolean</span>
+score_if_true  = <span class="c-num">95</span>    <span class="c-cmt"># TOR exit node detected → very high risk</span>
+score_if_false = <span class="c-num">0</span>
+weight = <span class="c-num">1.8</span>
+  </div>
+
+  <h3>String / categorical scale</h3>
+  <p>
+    Maps specific string values to scores. Use this for channel, country, or transaction type RIs where each category has a defined risk level.
+  </p>
+
+  <div class="code-label">ri-config.ini — string scale example (RI_PAYEE_HIGH_RISK_COUNTRY)</div>
+  <div class="code-block">
+<span class="c-cmt">[RI_PAYEE_HIGH_RISK_COUNTRY]</span>
+scale_type = <span class="c-str">string</span>
+<span class="c-cmt"># ISO 3166-1 country codes mapped to risk scores</span>
+score_NG = <span class="c-num">90</span>    <span class="c-cmt"># Nigeria — FATF grey list</span>
+score_IR = <span class="c-num">100</span>   <span class="c-cmt"># Iran — sanctioned jurisdiction</span>
+score_RU = <span class="c-num">85</span>    <span class="c-cmt"># Russia — elevated risk</span>
+score_DEFAULT = <span class="c-num">10</span>  <span class="c-cmt"># All other countries — baseline</span>
+weight = <span class="c-num">1.6</span>
+  </div>
+
+  <!-- TUNING THRESHOLDS -->
+  <h2 id="tuning-thresholds">Tuning decision thresholds</h2>
+
+  <p>
+    Decision thresholds are set per BTA in <code>threshold-config.yaml</code>. Different payment types warrant different thresholds: a wire transfer to a new international payee carries inherently more risk than an ACH credit, so the HIGH threshold for <code>WEB_WIRE_TRANSFER</code> should be lower (more sensitive) than for <code>ACH_CREDIT_BATCH</code>.
+  </p>
+
+  <div class="code-label">threshold-config.yaml — example</div>
+  <div class="code-block">
+<span class="c-key">thresholds</span>:
+
+  - <span class="c-key">bta_id</span>: <span class="c-str">"WEB_WIRE_TRANSFER"</span>
+    <span class="c-key">low_max</span>:      <span class="c-num">249</span>
+    <span class="c-key">medium_max</span>:   <span class="c-num">499</span>
+    <span class="c-key">high_max</span>:     <span class="c-num">699</span>
+    <span class="c-key">critical_min</span>: <span class="c-num">700</span>
+    <span class="c-key">decision_map</span>:
+      <span class="c-key">LOW</span>:      <span class="c-str">"APPROVE"</span>
+      <span class="c-key">MEDIUM</span>:   <span class="c-str">"APPROVE"</span>
+      <span class="c-key">HIGH</span>:     <span class="c-str">"STEP-UP"</span>
+      <span class="c-key">CRITICAL</span>: <span class="c-str">"BLOCK"</span>
+
+  - <span class="c-key">bta_id</span>: <span class="c-str">"ACH_CREDIT_BATCH"</span>
+    <span class="c-key">low_max</span>:      <span class="c-num">349</span>
+    <span class="c-key">medium_max</span>:   <span class="c-num">599</span>
+    <span class="c-key">high_max</span>:     <span class="c-num">799</span>
+    <span class="c-key">critical_min</span>: <span class="c-num">800</span>
+    <span class="c-key">decision_map</span>:
+      <span class="c-key">LOW</span>:      <span class="c-str">"APPROVE"</span>
+      <span class="c-key">MEDIUM</span>:   <span class="c-str">"APPROVE"</span>
+      <span class="c-key">HIGH</span>:     <span class="c-str">"REVIEW"</span>
+      <span class="c-key">CRITICAL</span>: <span class="c-str">"BLOCK"</span>
+  </div>
+
+  <!-- TUNING WORKFLOW -->
+  <h2 id="tuning-workflow">Quarterly tuning workflow</h2>
+
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <strong>Pull the Performance Report</strong>
+        <p>In the FraudShield Operations Console, go to <strong>Reports &gt; Model Performance</strong>. Download the quarterly report for each active BTA. Key metrics: FPR, FNR, precision, recall, and alert volume trend.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Identify out-of-range RIs</strong>
+        <p>Review the RI Contribution Report for RIs with consistently low sub-scores across fraud cases. These RIs may be over-weighted relative to their predictive value. Flag any RI where the average fraud-case sub-score is below 30.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Run threshold simulation</strong>
+        <p>Use the <strong>Threshold Simulator</strong> (Operations Console &gt; Tuning &gt; Simulate) to replay the last 90 days of transactions against proposed new thresholds. Review the simulated FPR/FNR impact before changing production settings.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Update configuration files</strong>
+        <p>Apply approved changes to <code>ri-config.ini</code> and <code>threshold-config.yaml</code> in the staging environment. Validate with a shadow-mode run (scoring without influencing decisions) for 5–10 business days.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Promote to production</strong>
+        <p>Submit a change request and, once approved, deploy configuration files to production. Monitor alert volume, FPR, and FNR for the first 48 hours using the Operations Dashboard.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Document the tuning rationale</strong>
+        <p>Record the business rationale, simulation results, and approvals in the Model Change Log. This forms part of the model governance audit trail required under SR 11-7 and CFPB model risk guidelines.</p>
+      </div>
+    </li>
+  </ol>
+
+  <!-- POPULATION-BASED TUNING -->
+  <h2 id="population-tuning">Population-based tuning</h2>
+  <p>
+    For RIs whose optimal thresholds vary significantly by customer segment (for example, high-net-worth clients vs. basic retail accounts), FraudShield AI supports population-scoped RI configurations. Set the <code>population_scope</code> parameter on any RI to apply a separate score scale for a defined customer segment.
+  </p>
+
+  <div class="code-label">ri-config.ini — population-scoped RI example</div>
+  <div class="code-block">
+<span class="c-cmt">[RI_AMOUNT_SPIKE_3SD]</span>
+scale_type = <span class="c-str">numeric</span>
+weight = <span class="c-num">1.5</span>
+<span class="c-cmt"># Default scale (all populations)</span>
+scale_0_1sd = <span class="c-num">0</span>
+scale_1_2sd = <span class="c-num">30</span>
+scale_2_3sd = <span class="c-num">65</span>
+scale_3up   = <span class="c-num">90</span>
+
+<span class="c-cmt"># Population override: High Net Worth (HNW) — wider baseline, lower scores</span>
+<span class="c-cmt">[RI_AMOUNT_SPIKE_3SD:segment=HNW]</span>
+scale_0_1sd = <span class="c-num">0</span>
+scale_1_2sd = <span class="c-num">10</span>
+scale_2_3sd = <span class="c-num">30</span>
+scale_3up   = <span class="c-num">60</span>
+  </div>
+
+  <div class="tip">
+    <strong>Start with the default thresholds</strong>
+    For new deployments, run the default configuration for 30 days before making tuning changes. You need sufficient data — at least 1,000 scored transactions per BTA — for threshold simulation to produce statistically meaningful results.
+  </div>
+
+</main>
+</body>
+</html>

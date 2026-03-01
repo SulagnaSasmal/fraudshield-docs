@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FraudShield AI Engine — Documentation</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html" class="active">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<!-- MAIN CONTENT -->
+<main class="main">
+
+  <h1>FraudShield AI Engine</h1>
+  <p class="topic-meta">
+    <span>Audience: Fraud Operations, Data Science, Compliance, IT</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    FraudShield AI Engine is an enterprise-grade, real-time fraud detection platform for financial institutions. It combines behavioral analytics, machine learning scoring models, and configurable rule-based decisioning to protect against payment fraud, account takeover, first-party fraud, and money mule activity across all transaction channels.
+  </p>
+  <p>
+    This documentation covers the platform's risk scoring model, model input features, system configuration, operational tuning, and integration points. It's written for fraud operations analysts, data scientists, compliance officers, and IT teams responsible for deploying and maintaining FraudShield AI.
+  </p>
+
+  <div class="note">
+    <strong>Document scope</strong>
+    This guide covers FraudShield AI Engine version 4.2, including the redesigned ML Model Configuration Platform (MCP), Real-Time Scoring API v3, and Explainability Report enhancements released in February 2026.
+  </div>
+
+  <!-- COMPONENT OVERVIEW CARDS -->
+  <h2 id="components">Component overview</h2>
+
+  <div class="card-grid">
+    <a class="card" href="risk-model.html">
+      <div class="card-icon">🧠</div>
+      <div class="card-title">Risk Scoring Model</div>
+      <div class="card-desc">ML-driven composite risk score built from Risk Indicators (RIs), behavioral profiles, and channel-specific detection models.</div>
+    </a>
+    <a class="card" href="model-inputs.html">
+      <div class="card-icon">📥</div>
+      <div class="card-title">Model Input Features</div>
+      <div class="card-desc">Transaction attributes, account history, behavioral biometrics, enrichment data, and aggregated profile variables.</div>
+    </a>
+    <a class="card" href="configuration.html">
+      <div class="card-icon">⚙️</div>
+      <div class="card-title">Model Configuration</div>
+      <div class="card-desc">Configuration files, channel mappings, Base Transaction Activity (BTA) definitions, and multi-tenant setup.</div>
+    </a>
+    <a class="card" href="threshold-tuning.html">
+      <div class="card-icon">🎚️</div>
+      <div class="card-title">Threshold Tuning</div>
+      <div class="card-desc">RI score scale configuration, weight assignment, population-based tuning, and the quarterly tuning cycle.</div>
+    </a>
+    <a class="card" href="false-positives.html">
+      <div class="card-icon">🔍</div>
+      <div class="card-title">False Positive Handling</div>
+      <div class="card-desc">Alert suppression rules, whitelisting, challenge/step-up authentication, and analyst feedback loop.</div>
+    </a>
+    <a class="card" href="retraining.html">
+      <div class="card-icon">🔄</div>
+      <div class="card-title">Model Retraining Cycle</div>
+      <div class="card-desc">Champion/challenger framework, training data requirements, validation gates, and deployment procedures.</div>
+    </a>
+    <a class="card" href="api-integration.html">
+      <div class="card-icon">🔌</div>
+      <div class="card-title">API Integration Guide</div>
+      <div class="card-desc">Real-time scoring API (REST), authentication, request/response schema, webhooks, and rate limits.</div>
+    </a>
+    <a class="card" href="audit-explainability.html">
+      <div class="card-icon">📋</div>
+      <div class="card-title">Audit Logs &amp; Explainability</div>
+      <div class="card-desc">Audit log schema, model explainability output, regulatory compliance, and governance reporting.</div>
+    </a>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <h2 id="architecture">System architecture</h2>
+  <p>
+    FraudShield AI Engine operates as a real-time decisioning layer between your core banking or payment system and the customer-facing channel. Each transaction passes through a pipeline of enrichment, feature extraction, model scoring, and rule evaluation before a decision is returned.
+  </p>
+
+  <div class="arch-diagram">
+    <div class="arch-title">FraudShield AI Engine — High-Level Data Flow</div>
+<pre>
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CHANNEL INPUTS                               │
+│   Web Banking  │  Mobile App  │  ACH/Wire  │  Card  │  ATM/Branch  │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │  Transaction event (JSON/ISO 20022)
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ENRICHMENT LAYER                                 │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐ │
+│  │ IP / Device  │  │   Identity    │  │  Behavioral Biometrics   │ │
+│  │ Fingerprint  │  │ Verification  │  │  (keystroke, navigation) │ │
+│  └──────────────┘  └───────────────┘  └──────────────────────────┘ │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │  Enriched transaction object
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   ANALYTICS ENGINE                                  │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Behavioral Profile Store  (account / entity / network)     │   │
+│  └────────────────────────────┬────────────────────────────────┘   │
+│                               │  Historical aggregates              │
+│  ┌────────────────────────────▼────────────────────────────────┐   │
+│  │  Risk Indicator (RI) Calculation                            │   │
+│  │  — 200+ RIs across transaction, account, and network layers │   │
+│  └────────────────────────────┬────────────────────────────────┘   │
+│                               │  RI values                          │
+│  ┌────────────────────────────▼────────────────────────────────┐   │
+│  │  ML Scoring Model  (channel-specific detection models)      │   │
+│  │  — Composite Risk Score (0–1000)                            │   │
+│  └────────────────────────────┬────────────────────────────────┘   │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │  Risk score + RI contributors
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   DECISIONING ENGINE                                │
+│   Policy Manager rules  →  Decision: APPROVE / REVIEW / BLOCK      │
+│   Alert generation  →  Case Manager / SIEM / Webhook                │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │  Decision + explainability payload
+                                ▼
+                     Core banking / Payment system
+</pre>
+  </div>
+
+  <!-- AUDIENCE -->
+  <h2>Who this guide is for</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Role</th>
+          <th>Relevant sections</th>
+          <th>Typical tasks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Fraud Operations Analyst</strong></td>
+          <td>Risk Scoring Model, Threshold Tuning, False Positive Handling</td>
+          <td>Review alerts, tune score thresholds, manage suppression rules</td>
+        </tr>
+        <tr>
+          <td><strong>Data Scientist / Model Owner</strong></td>
+          <td>Model Input Features, Model Retraining Cycle</td>
+          <td>Monitor model drift, run champion/challenger tests, retrain models</td>
+        </tr>
+        <tr>
+          <td><strong>Compliance Officer</strong></td>
+          <td>Audit Logs &amp; Explainability, Risk Scoring Model</td>
+          <td>Respond to regulatory requests, validate model governance</td>
+        </tr>
+        <tr>
+          <td><strong>IT / Integration Engineer</strong></td>
+          <td>Model Configuration, API Integration Guide</td>
+          <td>Deploy configuration, integrate core banking via REST API</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- QUICK LINKS -->
+  <h2>Quick-start paths</h2>
+  <ul>
+    <li><strong>New deployment:</strong> Start with <a href="configuration.html">Model Configuration</a>, then <a href="api-integration.html">API Integration Guide</a>.</li>
+    <li><strong>Tuning an existing deployment:</strong> See <a href="threshold-tuning.html">Threshold Tuning</a> and <a href="false-positives.html">False Positive Handling</a>.</li>
+    <li><strong>Model performance review:</strong> Go to <a href="retraining.html">Model Retraining Cycle</a>.</li>
+    <li><strong>Regulatory audit:</strong> Start with <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>.</li>
+  </ul>
+
+  <div class="warning">
+    <strong>Configuration changes require change control</strong>
+    All changes to model configuration files, score thresholds, and suppression rules must follow your institution's change management process. Unauthorized changes may affect fraud detection performance and could trigger model risk management reviews.
+  </div>
+
+</main>
+</body>
+</html>

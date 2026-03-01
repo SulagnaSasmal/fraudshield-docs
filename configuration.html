@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Configuration — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Model Configuration
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html" class="active">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Model Configuration</h1>
+  <p class="topic-meta">
+    <span>Audience: IT, Fraud Operations</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    FraudShield AI Engine is configured through a set of YAML and INI files deployed alongside the application. Configuration controls channel mapping, Base Transaction Activity (BTA) definitions, enrichment provider integration, and multi-tenant setup. This page describes each configuration file, its key parameters, and how changes are applied.
+  </p>
+
+  <div class="caution">
+    <strong>Change management required</strong>
+    All configuration changes must be reviewed and approved through your institution's change management process before being applied to production. Configuration errors can affect real-time scoring and fraud detection coverage. Always test changes in a staging environment first.
+  </div>
+
+  <!-- FILE STRUCTURE -->
+  <h2 id="file-structure">Configuration file structure</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Format</th>
+          <th>Purpose</th>
+          <th>Reload required</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>fs-core.yaml</code></td>
+          <td>YAML</td>
+          <td>Core engine settings: API server, database connections, profile store, enrichment provider order.</td>
+          <td>Yes — restart engine</td>
+        </tr>
+        <tr>
+          <td><code>bta-mapping.yaml</code></td>
+          <td>YAML</td>
+          <td>Maps incoming <code>transaction_type</code> + <code>channel</code> combinations to Base Transaction Activities (BTAs).</td>
+          <td>Yes — restart engine</td>
+        </tr>
+        <tr>
+          <td><code>enrichment-providers.yaml</code></td>
+          <td>YAML</td>
+          <td>Enrichment provider credentials, endpoint URLs, timeout settings, and call order.</td>
+          <td>Yes — restart engine</td>
+        </tr>
+        <tr>
+          <td><code>ri-config.ini</code></td>
+          <td>INI</td>
+          <td>RI activation flags, score scale assignments, weight overrides, and population scope settings.</td>
+          <td>Hot-reload supported (up to 60 s lag)</td>
+        </tr>
+        <tr>
+          <td><code>threshold-config.yaml</code></td>
+          <td>YAML</td>
+          <td>Risk score thresholds and decision mapping per BTA and channel. Loaded by Decisioning Engine.</td>
+          <td>Hot-reload supported (up to 60 s lag)</td>
+        </tr>
+        <tr>
+          <td><code>tenant-overrides.ini</code></td>
+          <td>INI</td>
+          <td>Per-tenant parameter overrides for multi-tenant deployments. Values here take precedence over <code>ri-config.ini</code>.</td>
+          <td>Hot-reload supported</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CORE SETTINGS -->
+  <h2 id="core-settings">Core engine settings — <code>fs-core.yaml</code></h2>
+
+  <div class="code-label">fs-core.yaml — key parameters</div>
+  <div class="code-block">
+<span class="c-cmt"># FraudShield AI Engine — Core Configuration</span>
+<span class="c-cmt"># Version: 4.2 | Environment: production</span>
+
+<span class="c-key">server</span>:
+  <span class="c-key">host</span>: <span class="c-str">"0.0.0.0"</span>
+  <span class="c-key">port</span>: <span class="c-num">8443</span>
+  <span class="c-key">tls_cert</span>: <span class="c-str">"/etc/fraudshield/certs/server.crt"</span>
+  <span class="c-key">tls_key</span>: <span class="c-str">"/etc/fraudshield/certs/server.key"</span>
+  <span class="c-key">request_timeout_ms</span>: <span class="c-num">3000</span>
+
+<span class="c-key">profile_store</span>:
+  <span class="c-key">type</span>: <span class="c-str">"redis_cluster"</span>
+  <span class="c-key">nodes</span>:
+    - <span class="c-str">"redis-node-1:6379"</span>
+    - <span class="c-str">"redis-node-2:6379"</span>
+    - <span class="c-str">"redis-node-3:6379"</span>
+  <span class="c-key">profile_ttl_days</span>: <span class="c-num">90</span>
+  <span class="c-key">max_connections</span>: <span class="c-num">200</span>
+
+<span class="c-key">model_registry</span>:
+  <span class="c-key">path</span>: <span class="c-str">"/var/fraudshield/models/"</span>
+  <span class="c-key">auto_load_on_startup</span>: <span class="c-key">true</span>
+  <span class="c-key">champion_model_file</span>: <span class="c-str">"champion.json"</span>
+
+<span class="c-key">audit_log</span>:
+  <span class="c-key">enabled</span>: <span class="c-key">true</span>
+  <span class="c-key">destination</span>: <span class="c-str">"kafka"</span>
+  <span class="c-key">kafka_topic</span>: <span class="c-str">"fraudshield-audit"</span>
+  <span class="c-key">include_ri_details</span>: <span class="c-key">true</span>
+  <span class="c-key">include_enrichment_data</span>: <span class="c-key">false</span>  <span class="c-cmt"># PII — disable unless required</span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Default</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>server.request_timeout_ms</code></td>
+          <td><code>3000</code></td>
+          <td>Maximum time (ms) allowed for the full scoring pipeline to complete. If exceeded, a TIMEOUT decision is returned and the transaction is approved by default (fail-open). Reduce only if your core system SLA is tighter.</td>
+        </tr>
+        <tr>
+          <td><code>profile_store.profile_ttl_days</code></td>
+          <td><code>90</code></td>
+          <td>How long profile data is retained. Shorter retention reduces storage cost but degrades 90-day rolling RI accuracy.</td>
+        </tr>
+        <tr>
+          <td><code>audit_log.include_enrichment_data</code></td>
+          <td><code>false</code></td>
+          <td>When <code>true</code>, enrichment responses (including IP address and device fingerprint) are written to the audit log. Enable only if required for regulatory purposes, as enrichment data may be classified as PII.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- BTA MAPPING -->
+  <h2 id="bta-mapping">Base Transaction Activity mapping — <code>bta-mapping.yaml</code></h2>
+  <p>
+    The BTA mapping file determines which detection model runs for each transaction. Every <code>transaction_type</code> + <code>channel</code> combination maps to exactly one BTA. The BTA then determines the active detection model and which RI categories are evaluated.
+  </p>
+
+  <div class="code-label">bta-mapping.yaml — example entries</div>
+  <div class="code-block">
+<span class="c-key">bta_mappings</span>:
+
+  - <span class="c-key">transaction_type</span>: <span class="c-str">"WIRE"</span>
+    <span class="c-key">channel</span>: <span class="c-str">"WEB"</span>
+    <span class="c-key">bta_id</span>: <span class="c-str">"WEB_WIRE_TRANSFER"</span>
+    <span class="c-key">detection_model</span>: <span class="c-str">"MDL_WIRE_ATO"</span>
+    <span class="c-key">ri_categories</span>: [<span class="c-str">"velocity"</span>, <span class="c-str">"amount_anomaly"</span>, <span class="c-str">"beneficiary"</span>, <span class="c-str">"device_channel"</span>, <span class="c-str">"network_ip"</span>, <span class="c-str">"behavioral"</span>]
+
+  - <span class="c-key">transaction_type</span>: <span class="c-str">"ACH_CREDIT"</span>
+    <span class="c-key">channel</span>: <span class="c-str">"BATCH"</span>
+    <span class="c-key">bta_id</span>: <span class="c-str">"ACH_CREDIT_BATCH"</span>
+    <span class="c-key">detection_model</span>: <span class="c-str">"MDL_ACH_FRAUD"</span>
+    <span class="c-key">ri_categories</span>: [<span class="c-str">"velocity"</span>, <span class="c-str">"amount_anomaly"</span>, <span class="c-str">"beneficiary"</span>, <span class="c-str">"account_lifecycle"</span>]
+
+  - <span class="c-key">transaction_type</span>: <span class="c-str">"RTP"</span>
+    <span class="c-key">channel</span>: <span class="c-str">"MOBILE"</span>
+    <span class="c-key">bta_id</span>: <span class="c-str">"MOB_RTP_SEND"</span>
+    <span class="c-key">detection_model</span>: <span class="c-str">"MDL_RTP_MULE"</span>
+    <span class="c-key">ri_categories</span>: [<span class="c-str">"velocity"</span>, <span class="c-str">"amount_anomaly"</span>, <span class="c-str">"beneficiary"</span>, <span class="c-str">"behavioral"</span>, <span class="c-str">"network_graph"</span>]
+  </div>
+
+  <div class="note">
+    <strong>Unmapped transaction types</strong>
+    If a transaction arrives with a <code>transaction_type</code> or <code>channel</code> combination that has no BTA mapping, the engine uses the <code>GENERIC_DEFAULT</code> BTA and the fallback model. This generates a warning in the application log. Review unmapped combinations in the BTA Gap Report (Administration &gt; Diagnostics).
+  </div>
+
+  <!-- ENRICHMENT -->
+  <h2 id="enrichment">Enrichment provider configuration — <code>enrichment-providers.yaml</code></h2>
+
+  <div class="code-label">enrichment-providers.yaml — example</div>
+  <div class="code-block">
+<span class="c-key">enrichment_providers</span>:
+
+  - <span class="c-key">name</span>: <span class="c-str">"ip_intelligence"</span>
+    <span class="c-key">provider</span>: <span class="c-str">"ipqualityscore"</span>
+    <span class="c-key">enabled</span>: <span class="c-key">true</span>
+    <span class="c-key">endpoint</span>: <span class="c-str">"https://ipqualityscore.com/api/json/ip"</span>
+    <span class="c-key">api_key_env_var</span>: <span class="c-str">"IPQS_API_KEY"</span>   <span class="c-cmt"># Never hard-code credentials</span>
+    <span class="c-key">timeout_ms</span>: <span class="c-num">400</span>
+    <span class="c-key">on_timeout</span>: <span class="c-str">"skip"</span>           <span class="c-cmt"># skip | fail-open | fail-closed</span>
+
+  - <span class="c-key">name</span>: <span class="c-str">"device_fingerprint"</span>
+    <span class="c-key">provider</span>: <span class="c-str">"threatmetrix"</span>
+    <span class="c-key">enabled</span>: <span class="c-key">true</span>
+    <span class="c-key">org_id_env_var</span>: <span class="c-str">"TMX_ORG_ID"</span>
+    <span class="c-key">timeout_ms</span>: <span class="c-num">300</span>
+    <span class="c-key">on_timeout</span>: <span class="c-str">"skip"</span>
+
+  - <span class="c-key">name</span>: <span class="c-str">"sanctions_screening"</span>
+    <span class="c-key">provider</span>: <span class="c-str">"firco"</span>
+    <span class="c-key">enabled</span>: <span class="c-key">true</span>
+    <span class="c-key">endpoint</span>: <span class="c-str">"https://sanctions-api.internal/v2/screen"</span>
+    <span class="c-key">timeout_ms</span>: <span class="c-num">800</span>
+    <span class="c-key">on_timeout</span>: <span class="c-str">"fail-closed"</span>   <span class="c-cmt"># Block on timeout — regulatory requirement</span>
+  </div>
+
+  <div class="warning">
+    <strong>Never store credentials in configuration files</strong>
+    Use environment variables or a secrets manager (HashiCorp Vault, AWS Secrets Manager) for all provider API keys and credentials. The <code>*_env_var</code> parameter tells the engine which environment variable to read at startup.
+  </div>
+
+  <!-- MULTI-TENANT -->
+  <h2 id="multi-tenant">Multi-tenant configuration</h2>
+  <p>
+    FraudShield AI supports multi-tenant deployments where multiple business units or subsidiary institutions share a single engine instance. Shared configuration applies to all tenants; tenant-specific overrides in <code>tenant-overrides.ini</code> take precedence.
+  </p>
+
+  <h3>Configuration precedence (highest to lowest)</h3>
+  <ol>
+    <li><code>tenant-overrides.ini</code> — tenant-specific overrides</li>
+    <li><code>ri-config.ini</code> — institution-wide RI settings</li>
+    <li>Built-in model defaults — factory settings</li>
+  </ol>
+
+  <div class="code-label">tenant-overrides.ini — example (Tenant: RETAIL_BANK_WEST)</div>
+  <div class="code-block">
+<span class="c-cmt">[tenant:RETAIL_BANK_WEST]</span>
+
+<span class="c-cmt"># Override HIGH threshold — this tenant has lower risk appetite</span>
+threshold_high = <span class="c-num">500</span>
+threshold_critical = <span class="c-num">700</span>
+
+<span class="c-cmt"># Disable EAM uplift for accounts acquired via branch (staff-verified)</span>
+eam_uplift_channel_branch = <span class="c-key">false</span>
+
+<span class="c-cmt"># Activate insider fraud model for this tenant only</span>
+detection_model_override = <span class="c-str">MDL_INTERNAL_EMP</span>
+detection_model_btalist = <span class="c-str">BRANCH_WIRE_TRANSFER,BRANCH_ACH</span>
+  </div>
+
+  <div class="note">
+    <strong>Shared vs. tenant-specific parameters</strong>
+    Parameters that affect all tenants (database connections, model registry path) must be set in <code>fs-core.yaml</code>. Only scoring behavior parameters (thresholds, RI weights, model selection) should appear in tenant overrides.
+  </div>
+
+</main>
+</body>
+</html>

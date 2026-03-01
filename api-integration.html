@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Integration Guide — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › API Integration Guide
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html" class="active">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>API Integration Guide</h1>
+  <p class="topic-meta">
+    <span>Audience: IT, Integration Engineers</span>
+    <span>Last updated: March 2026</span>
+    <span>API Version: v3</span>
+  </p>
+
+  <p>
+    FraudShield AI Engine exposes a REST API for real-time transaction scoring, alert webhook delivery, and case feedback submission. Integrate the Scoring API inline within your payment authorization flow so every transaction is evaluated before it's approved or posted.
+  </p>
+
+  <div class="note">
+    <strong>API version</strong>
+    This guide covers <strong>API v3</strong>, released in February 2026. API v2 remains supported until December 2026. Migrate to v3 before that date. The primary change in v3 is the expanded <code>score_contributors</code> array and the new <code>step_up</code> response object.
+  </div>
+
+  <!-- BASE URL -->
+  <h2 id="base-url">Base URL and versioning</h2>
+
+  <div class="code-block">
+<span class="c-cmt"># Production</span>
+https://fraudshield.yourbank.internal/api/v3/
+
+<span class="c-cmt"># Staging / UAT</span>
+https://fraudshield-uat.yourbank.internal/api/v3/
+  </div>
+
+  <p>
+    The API is only accessible from within your institution's internal network or via the approved API gateway. It's not exposed directly to the internet.
+  </p>
+
+  <!-- AUTHENTICATION -->
+  <h2 id="authentication">Authentication</h2>
+  <p>
+    All API requests must include a bearer token in the <code>Authorization</code> header. Tokens are issued per integration client (one token per calling system) and carry the permissions and tenant context for that client.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Header</th>
+          <th>Value</th>
+          <th>Required</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Authorization</code></td>
+          <td><code>Bearer {api_token}</code></td>
+          <td><span class="score-badge badge-high">Required</span></td>
+        </tr>
+        <tr>
+          <td><code>Content-Type</code></td>
+          <td><code>application/json</code></td>
+          <td><span class="score-badge badge-high">Required</span></td>
+        </tr>
+        <tr>
+          <td><code>X-Correlation-ID</code></td>
+          <td>Client-generated UUID for request tracing</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+        </tr>
+        <tr>
+          <td><code>X-Tenant-ID</code></td>
+          <td>Tenant identifier (required for multi-tenant deployments)</td>
+          <td>Conditional</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="caution">
+    <strong>Protect API tokens</strong>
+    Store tokens in a secrets manager — never in code, configuration files, or version control. Rotate tokens every 90 days. If a token is compromised, revoke it immediately in the FraudShield Administration console and issue a new one.
+  </div>
+
+  <!-- ENDPOINTS -->
+  <h2 id="endpoints">API endpoints</h2>
+
+  <!-- SCORE -->
+  <div class="endpoint">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="endpoint-path">/api/v3/score</span>
+      <span class="endpoint-desc">Real-time transaction scoring</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Submit a transaction for real-time risk scoring. Call this endpoint synchronously before authorizing or posting any payment. The response contains the risk score, decision, and score contributors.</p>
+    </div>
+  </div>
+
+  <div class="code-label">Request — POST /api/v3/score</div>
+  <div class="code-block">
+<span class="c-verb">POST</span> <span class="c-url">/api/v3/score</span>
+<span class="c-key">Authorization</span>: Bearer <span class="c-str">{api_token}</span>
+<span class="c-key">Content-Type</span>: application/json
+<span class="c-key">X-Correlation-ID</span>: <span class="c-str">a3f2c1d9-8e4b-4f71-b0c3-7e91d2a5f6b8</span>
+
+{
+  <span class="c-key">"transaction_id"</span>:    <span class="c-str">"TXN-20260301-004821"</span>,
+  <span class="c-key">"transaction_type"</span>:  <span class="c-str">"WIRE"</span>,
+  <span class="c-key">"channel"</span>:           <span class="c-str">"WEB"</span>,
+  <span class="c-key">"amount"</span>:            <span class="c-num">24500.00</span>,
+  <span class="c-key">"currency"</span>:          <span class="c-str">"USD"</span>,
+  <span class="c-key">"timestamp"</span>:         <span class="c-str">"2026-03-01T14:33:07Z"</span>,
+  <span class="c-key">"memo"</span>:              <span class="c-str">"Invoice #4821 payment"</span>,
+  <span class="c-key">"originator"</span>: {
+    <span class="c-key">"account_id"</span>:       <span class="c-str">"ACC-0012938847"</span>,
+    <span class="c-key">"customer_id"</span>:      <span class="c-str">"CIF-00984321"</span>,
+    <span class="c-key">"account_open_date"</span>:<span class="c-str">"2019-06-15"</span>
+  },
+  <span class="c-key">"beneficiary"</span>: {
+    <span class="c-key">"account_number"</span>:   <span class="c-str">"7841029384"</span>,
+    <span class="c-key">"routing_number"</span>:   <span class="c-str">"021000021"</span>,
+    <span class="c-key">"name"</span>:             <span class="c-str">"Acme Corp LLC"</span>,
+    <span class="c-key">"country"</span>:          <span class="c-str">"US"</span>
+  },
+  <span class="c-key">"behavioral"</span>: {
+    <span class="c-key">"session_id"</span>:           <span class="c-str">"sess-d82f1c9a"</span>,
+    <span class="c-key">"session_duration_s"</span>:   <span class="c-num">342</span>,
+    <span class="c-key">"copy_paste_detected"</span>:  <span class="c-key">false</span>
+  }
+}
+  </div>
+
+  <div class="code-label">Response — 200 OK (APPROVE)</div>
+  <div class="code-block">
+{
+  <span class="c-key">"transaction_id"</span>:    <span class="c-str">"TXN-20260301-004821"</span>,
+  <span class="c-key">"correlation_id"</span>:    <span class="c-str">"a3f2c1d9-8e4b-4f71-b0c3-7e91d2a5f6b8"</span>,
+  <span class="c-key">"risk_score"</span>:        <span class="c-num">214</span>,
+  <span class="c-key">"risk_level"</span>:        <span class="c-str">"LOW"</span>,
+  <span class="c-key">"decision"</span>:          <span class="c-str">"APPROVE"</span>,
+  <span class="c-key">"alert_generated"</span>:   <span class="c-key">false</span>,
+  <span class="c-key">"bta_id"</span>:            <span class="c-str">"WEB_WIRE_TRANSFER"</span>,
+  <span class="c-key">"model_id"</span>:          <span class="c-str">"MDL_WIRE_ATO"</span>,
+  <span class="c-key">"model_version"</span>:     <span class="c-str">"4.2.1"</span>,
+  <span class="c-key">"score_contributors"</span>: [
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_NEW_PAYEE_FIRST_TXN"</span>,     <span class="c-key">"sub_score"</span>: <span class="c-num">55</span>, <span class="c-key">"display"</span>: <span class="c-str">"First transaction to this payee"</span> },
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_VELOCITY_TRANSFER_1H"</span>,     <span class="c-key">"sub_score"</span>: <span class="c-num">0</span>,  <span class="c-key">"display"</span>: <span class="c-str">"Normal velocity (1 transfer in last hour)"</span> },
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_DEVICE_FINGERPRINT_CHANGE"</span>, <span class="c-key">"sub_score"</span>: <span class="c-num">0</span>,  <span class="c-key">"display"</span>: <span class="c-str">"Known device"</span> }
+  ],
+  <span class="c-key">"processing_time_ms"</span>: <span class="c-num">87</span>,
+  <span class="c-key">"scored_at"</span>:         <span class="c-str">"2026-03-01T14:33:07.312Z"</span>
+}
+  </div>
+
+  <div class="code-label">Response — 200 OK (STEP-UP / HIGH)</div>
+  <div class="code-block">
+{
+  <span class="c-key">"transaction_id"</span>:    <span class="c-str">"TXN-20260301-005193"</span>,
+  <span class="c-key">"risk_score"</span>:        <span class="c-num">621</span>,
+  <span class="c-key">"risk_level"</span>:        <span class="c-str">"HIGH"</span>,
+  <span class="c-key">"decision"</span>:          <span class="c-str">"STEP-UP"</span>,
+  <span class="c-key">"alert_generated"</span>:   <span class="c-key">true</span>,
+  <span class="c-key">"alert_id"</span>:          <span class="c-str">"ALT-20260301-009977"</span>,
+  <span class="c-key">"step_up"</span>: {
+    <span class="c-key">"required"</span>:         <span class="c-key">true</span>,
+    <span class="c-key">"methods"</span>:          [<span class="c-str">"SMS_OTP"</span>, <span class="c-str">"PUSH_NOTIFICATION"</span>],
+    <span class="c-key">"challenge_token"</span>:  <span class="c-str">"chk-f9a2b3d1-7c44-4e98-ab21"</span>,
+    <span class="c-key">"token_expires"</span>:    <span class="c-str">"2026-03-01T14:43:07Z"</span>
+  },
+  <span class="c-key">"score_contributors"</span>: [
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_VELOCITY_TRANSFER_1H"</span>,  <span class="c-key">"sub_score"</span>: <span class="c-num">80</span>, <span class="c-key">"display"</span>: <span class="c-str">"12 transfers in last hour (elevated)"</span> },
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_NEW_PAYEE_FIRST_TXN"</span>,    <span class="c-key">"sub_score"</span>: <span class="c-num">90</span>, <span class="c-key">"display"</span>: <span class="c-str">"First transaction to this payee"</span> },
+    { <span class="c-key">"ri_id"</span>: <span class="c-str">"RI_AMOUNT_SPIKE_3SD"</span>,       <span class="c-key">"sub_score"</span>: <span class="c-num">75</span>, <span class="c-key">"display"</span>: <span class="c-str">"Amount 3.4 std deviations above 30D mean"</span> }
+  ],
+  <span class="c-key">"processing_time_ms"</span>: <span class="c-num">102</span>
+}
+  </div>
+
+  <!-- STEP-UP CONFIRMATION -->
+  <div class="endpoint" style="margin-top:1.5rem;">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="endpoint-path">/api/v3/score/step-up-result</span>
+      <span class="endpoint-desc">Submit step-up challenge result</span>
+    </div>
+    <div class="endpoint-body">
+      <p>After presenting the step-up challenge to the customer, submit the challenge outcome. FraudShield re-evaluates the decision based on the result.</p>
+    </div>
+  </div>
+
+  <div class="code-label">Request body — step-up result</div>
+  <div class="code-block">
+{
+  <span class="c-key">"transaction_id"</span>:  <span class="c-str">"TXN-20260301-005193"</span>,
+  <span class="c-key">"challenge_token"</span>: <span class="c-str">"chk-f9a2b3d1-7c44-4e98-ab21"</span>,
+  <span class="c-key">"challenge_result"</span>:<span class="c-str">"PASSED"</span>,   <span class="c-cmt">// PASSED | FAILED | TIMED_OUT</span>
+  <span class="c-key">"method_used"</span>:     <span class="c-str">"SMS_OTP"</span>
+}
+  </div>
+
+  <!-- CASE FEEDBACK -->
+  <div class="endpoint" style="margin-top:1.5rem;">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="endpoint-path">/api/v3/feedback</span>
+      <span class="endpoint-desc">Submit case disposition feedback</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Submit analyst dispositions programmatically from an external case management system. Dispositions feed into the model feedback loop.</p>
+    </div>
+  </div>
+
+  <div class="code-label">Request body — feedback</div>
+  <div class="code-block">
+{
+  <span class="c-key">"alert_id"</span>:       <span class="c-str">"ALT-20260301-009977"</span>,
+  <span class="c-key">"transaction_id"</span>: <span class="c-str">"TXN-20260301-005193"</span>,
+  <span class="c-key">"disposition"</span>:    <span class="c-str">"FALSE_POSITIVE"</span>,  <span class="c-cmt">// CONFIRMED_FRAUD | SUSPICIOUS | FALSE_POSITIVE | DUPLICATE</span>
+  <span class="c-key">"analyst_id"</span>:     <span class="c-str">"analyst-jsmith"</span>,
+  <span class="c-key">"notes"</span>:          <span class="c-str">"Customer called in — confirmed this was their own transfer. Regular payee."</span>
+}
+  </div>
+
+  <!-- HEALTH -->
+  <div class="endpoint" style="margin-top:1.5rem;">
+    <div class="endpoint-header">
+      <span class="method method-get">GET</span>
+      <span class="endpoint-path">/api/v3/health</span>
+      <span class="endpoint-desc">Engine health check</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Returns the current health status of all engine components. Use for integration monitoring and alerting.</p>
+    </div>
+  </div>
+
+  <!-- ERROR CODES -->
+  <h2 id="error-codes">Error codes</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>HTTP status</th>
+          <th>Error code</th>
+          <th>Description</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>400</td>
+          <td><code>INVALID_REQUEST</code></td>
+          <td>Request body is missing required fields or contains invalid values.</td>
+          <td>Fix the request payload. Check required fields in <a href="model-inputs.html">Model Input Features</a>.</td>
+        </tr>
+        <tr>
+          <td>401</td>
+          <td><code>AUTH_INVALID_TOKEN</code></td>
+          <td>API token is missing, expired, or revoked.</td>
+          <td>Reissue the token from the Administration console.</td>
+        </tr>
+        <tr>
+          <td>409</td>
+          <td><code>DUPLICATE_TRANSACTION</code></td>
+          <td>A request with this <code>transaction_id</code> was already processed. Idempotency protection triggered.</td>
+          <td>Don't re-submit the same transaction ID. The original response is returned.</td>
+        </tr>
+        <tr>
+          <td>429</td>
+          <td><code>RATE_LIMIT_EXCEEDED</code></td>
+          <td>The calling client has exceeded the rate limit.</td>
+          <td>Back off and retry after the duration specified in the <code>Retry-After</code> header.</td>
+        </tr>
+        <tr>
+          <td>503</td>
+          <td><code>ENRICHMENT_UNAVAILABLE</code></td>
+          <td>One or more enrichment providers are unavailable. Scoring continues without that enrichment (fail-open behavior).</td>
+          <td>No action required if fail-open is acceptable. Monitor enrichment provider uptime.</td>
+        </tr>
+        <tr>
+          <td>504</td>
+          <td><code>SCORING_TIMEOUT</code></td>
+          <td>Scoring pipeline exceeded the <code>request_timeout_ms</code> limit. A fail-open APPROVE decision is returned.</td>
+          <td>Check engine latency metrics. Consider increasing timeout or investigating enrichment provider latency.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- RATE LIMITS -->
+  <h2 id="rate-limits">Rate limits</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th>Default limit</th>
+          <th>Burst allowance</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>POST /api/v3/score</code></td>
+          <td>500 requests/second per token</td>
+          <td>Up to 1,000 req/s for 5 seconds</td>
+        </tr>
+        <tr>
+          <td><code>POST /api/v3/score/step-up-result</code></td>
+          <td>200 requests/second per token</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>POST /api/v3/feedback</code></td>
+          <td>50 requests/second per token</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>GET /api/v3/health</code></td>
+          <td>10 requests/minute per token</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>Rate limit increases</strong>
+    If your transaction volume requires higher limits, contact your FraudShield implementation team. Rate limits are configurable per API token and are not shared across tokens.
+  </div>
+
+</main>
+</body>
+</html>

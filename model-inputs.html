@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Input Features — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Model Input Features
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html" class="active">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Model Input Features</h1>
+  <p class="topic-meta">
+    <span>Audience: Data Science, Fraud Operations, IT</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    FraudShield AI models consume five categories of input features: transaction attributes, account and entity attributes, behavioral enrichment data, third-party enrichment data, and historical profile aggregates. This page describes each category, the specific fields used, and their data requirements.
+  </p>
+
+  <div class="note">
+    <strong>Required vs. recommended fields</strong>
+    Required fields must be present in the API request for scoring to proceed. Recommended fields are optional but significantly improve model accuracy. Missing recommended fields degrade risk coverage for specific RI categories. Fields marked enrichment are added by the platform — you don't need to supply these in the request.
+  </div>
+
+  <!-- CATEGORY 1 -->
+  <h2 id="transaction-attributes">Transaction attributes</h2>
+  <p>
+    Core fields describing the payment event. These are always available from the originating payment system and should always be included in every scoring request.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Required</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>transaction_id</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Unique transaction identifier from core banking. Used for idempotency and audit trail correlation.</td>
+        </tr>
+        <tr>
+          <td><code>transaction_type</code></td>
+          <td>string (enum)</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Payment type. Values: <code>WIRE</code>, <code>ACH_CREDIT</code>, <code>ACH_DEBIT</code>, <code>RTP</code>, <code>FEDNOW</code>, <code>CARD_CNP</code>, <code>P2P</code>, <code>INTERNAL_TRANSFER</code>.</td>
+        </tr>
+        <tr>
+          <td><code>channel</code></td>
+          <td>string (enum)</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Originating channel. Values: <code>WEB</code>, <code>MOBILE</code>, <code>BRANCH</code>, <code>API</code>, <code>IVR</code>, <code>BATCH</code>.</td>
+        </tr>
+        <tr>
+          <td><code>amount</code></td>
+          <td>decimal</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Transaction amount in the currency specified. Supports up to 2 decimal places.</td>
+        </tr>
+        <tr>
+          <td><code>currency</code></td>
+          <td>string (ISO 4217)</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>ISO 4217 currency code, e.g. <code>USD</code>, <code>EUR</code>, <code>GBP</code>.</td>
+        </tr>
+        <tr>
+          <td><code>timestamp</code></td>
+          <td>ISO 8601 datetime</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Transaction initiation time in UTC. Used for velocity calculations and time-of-day pattern analysis.</td>
+        </tr>
+        <tr>
+          <td><code>memo</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+          <td>Payment description or reference. Used by NLP memo analysis for social engineering signal detection.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CATEGORY 2 -->
+  <h2 id="account-entity">Account and entity attributes</h2>
+  <p>
+    Identifies the originating account and beneficiary. Both originator and beneficiary data are used by RI calculations for relationship analysis and new payee detection.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Required</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>originator.account_id</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Internal account identifier for the sending party. Used as the primary profile lookup key.</td>
+        </tr>
+        <tr>
+          <td><code>originator.customer_id</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Customer CIF or party ID. Enables cross-account entity profiling.</td>
+        </tr>
+        <tr>
+          <td><code>originator.account_open_date</code></td>
+          <td>ISO 8601 date</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+          <td>Account opening date. Drives the <code>RI_ACCOUNT_AGE_DAYS</code> and Early Account Monitoring (EAM) risk indicators.</td>
+        </tr>
+        <tr>
+          <td><code>beneficiary.account_number</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-high">Required</span></td>
+          <td>Destination account number. Hashed and used for new payee detection and mule account matching.</td>
+        </tr>
+        <tr>
+          <td><code>beneficiary.routing_number</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+          <td>ABA routing number or equivalent. Used for domestic bank classification and high-risk routing analysis.</td>
+        </tr>
+        <tr>
+          <td><code>beneficiary.country</code></td>
+          <td>string (ISO 3166-1)</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+          <td>Destination country code. Required for <code>RI_PAYEE_HIGH_RISK_COUNTRY</code> and OFAC/sanctions list matching.</td>
+        </tr>
+        <tr>
+          <td><code>beneficiary.name</code></td>
+          <td>string</td>
+          <td><span class="score-badge badge-info">Recommended</span></td>
+          <td>Beneficiary name. Used for name-account consistency checks and watchlist screening.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CATEGORY 3 -->
+  <h2 id="behavioral-enrichment">Behavioral enrichment data</h2>
+  <p>
+    Behavioral signals are supplied by your channel (web or mobile SDK) and describe how the user interacted with the session. These are among the most predictive features for account takeover detection. Integrate the FraudShield Behavioral SDK to capture these signals automatically.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>RIs enabled</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>behavioral.session_id</code></td>
+          <td>string</td>
+          <td>Session identifier from the web or mobile SDK. Links behavioral data to the session profile.</td>
+          <td>All behavioral RIs</td>
+        </tr>
+        <tr>
+          <td><code>behavioral.keystroke_dynamics</code></td>
+          <td>object</td>
+          <td>Keystroke timing (dwell time, flight time) captured during credential entry. Compared against the user's enrolled biometric model.</td>
+          <td><code>RI_KEYSTROKE_ANOMALY_SCORE</code></td>
+        </tr>
+        <tr>
+          <td><code>behavioral.mouse_dynamics</code></td>
+          <td>object</td>
+          <td>Mouse movement velocity, click patterns, scroll behavior. Detects automated tooling and remote access sessions.</td>
+          <td><code>RI_SESSION_NAVIGATION_BOT</code></td>
+        </tr>
+        <tr>
+          <td><code>behavioral.navigation_path</code></td>
+          <td>array</td>
+          <td>Ordered list of pages/screens visited before the transaction was submitted. Unusual paths (direct-to-payment) are high-risk signals.</td>
+          <td><code>RI_NAVIGATION_ANOMALY</code></td>
+        </tr>
+        <tr>
+          <td><code>behavioral.session_duration_s</code></td>
+          <td>integer</td>
+          <td>Total session duration in seconds. Very short sessions with high-value payments are a mule indicator.</td>
+          <td><code>RI_SESSION_DURATION_SHORT</code></td>
+        </tr>
+        <tr>
+          <td><code>behavioral.copy_paste_detected</code></td>
+          <td>boolean</td>
+          <td>Whether the account number or beneficiary field was copy-pasted rather than typed. Associated with social engineering scams.</td>
+          <td><code>RI_COPY_PASTE_BENEFICIARY</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CATEGORY 4 -->
+  <h2 id="third-party-enrichment">Third-party enrichment data</h2>
+  <p>
+    FraudShield AI calls configured enrichment providers at scoring time and automatically appends the results to the transaction before RI calculation. You don't supply these fields in the API request — the platform manages provider calls internally.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Enrichment type</th>
+          <th>Provider (default)</th>
+          <th>Key fields added</th>
+          <th>RIs enabled</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>IP intelligence</strong></td>
+          <td>MaxMind GeoIP2 + IPQualityScore</td>
+          <td><code>ip_country</code>, <code>ip_city</code>, <code>is_vpn</code>, <code>is_tor</code>, <code>is_proxy</code>, <code>fraud_score</code></td>
+          <td><code>RI_IP_COUNTRY_MISMATCH</code>, <code>RI_TOR_EXIT_NODE</code>, <code>RI_VPN_DETECTED</code></td>
+        </tr>
+        <tr>
+          <td><strong>Device fingerprinting</strong></td>
+          <td>ThreatMetrix (LexisNexis)</td>
+          <td><code>device_id</code>, <code>device_type</code>, <code>is_new_device</code>, <code>device_risk_score</code>, <code>remote_access_detected</code></td>
+          <td><code>RI_DEVICE_FINGERPRINT_CHANGE</code>, <code>RI_REMOTE_ACCESS_TOOL</code></td>
+        </tr>
+        <tr>
+          <td><strong>Identity verification</strong></td>
+          <td>Experian IdentityIQ / Socure</td>
+          <td><code>identity_score</code>, <code>synthetic_id_flag</code>, <code>address_verified</code></td>
+          <td><code>RI_SYNTHETIC_ID_SCORE</code>, <code>RI_ADDRESS_MISMATCH</code></td>
+        </tr>
+        <tr>
+          <td><strong>Beneficiary account intelligence</strong></td>
+          <td>Early Warning Services (Zelle network)</td>
+          <td><code>beneficiary_account_age_days</code>, <code>beneficiary_is_known_mule</code></td>
+          <td><code>RI_MULE_ACCOUNT_CONFIRMED</code>, <code>RI_NEW_PAYEE_FIRST_TXN</code></td>
+        </tr>
+        <tr>
+          <td><strong>Sanctions screening</strong></td>
+          <td>Accuity Firco / SWIFT Compliance Analytics</td>
+          <td><code>ofac_hit</code>, <code>sanctions_list_match</code></td>
+          <td>Triggers hard BLOCK decision (overrides score)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>Configuring enrichment providers</strong>
+    Enrichment provider credentials and call order are configured in <code>enrichment-providers.yaml</code>. See <a href="configuration.html#enrichment">Model Configuration — Enrichment</a> for details.
+  </div>
+
+  <!-- CATEGORY 5 -->
+  <h2 id="profile-aggregates">Historical profile aggregates</h2>
+  <p>
+    Behavioral profiles store aggregated historical transaction data for each account and entity. The profile store is updated in real time as each transaction is processed. RI calculations query profiles to compare the current transaction against the entity's established behavioral baseline.
+  </p>
+
+  <h3>Profile dimensions</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Description</th>
+          <th>Time windows</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Account profile</strong></td>
+          <td>Aggregates for a single account: rolling transaction counts, amounts, payee lists, channel usage, and average session characteristics.</td>
+          <td>1H, 4H, 24H, 7D, 30D, 90D</td>
+        </tr>
+        <tr>
+          <td><strong>Entity profile</strong></td>
+          <td>Cross-account aggregates for the same customer (CIF). Detects velocity and amount anomalies across multiple accounts owned by one person.</td>
+          <td>24H, 7D, 30D</td>
+        </tr>
+        <tr>
+          <td><strong>Payee / beneficiary profile</strong></td>
+          <td>History of transactions sent to a specific beneficiary account from any account in the institution. Used for mule account detection.</td>
+          <td>7D, 30D, 90D</td>
+        </tr>
+        <tr>
+          <td><strong>Device profile</strong></td>
+          <td>Accounts and sessions associated with a device fingerprint. Identifies device sharing across unrelated accounts (mule network indicator).</td>
+          <td>30D, 90D</td>
+        </tr>
+        <tr>
+          <td><strong>Network graph</strong></td>
+          <td>Entity relationship graph: shared phones, addresses, devices, IPs. Graph-based RIs use centrality and clustering scores to detect organized fraud rings.</td>
+          <td>Continuous (updated daily for bulk; real-time for known high-risk nodes)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Profile maturation period</h3>
+  <p>
+    New accounts have limited behavioral history, which reduces the effectiveness of profile-based RIs. FraudShield AI applies an <strong>Early Account Monitoring (EAM)</strong> window for accounts opened in the last 90 days. During EAM, the platform:
+  </p>
+  <ul>
+    <li>Applies a score uplift factor to compensate for thin profile data.</li>
+    <li>Activates the <code>MDL_1PF_APPFRAUD</code> first-party fraud detection model in parallel.</li>
+    <li>Reduces the HIGH threshold by 50 points so more transactions route to REVIEW.</li>
+  </ul>
+
+  <div class="tip">
+    <strong>Profile data quality drives model accuracy</strong>
+    Sending all transaction types (including low-value and approved transactions) to the scoring API ensures the profile store builds an accurate behavioral baseline. Selective scoring — only submitting high-value transactions — degrades velocity and baseline RIs.
+  </div>
+
+</main>
+</body>
+</html>

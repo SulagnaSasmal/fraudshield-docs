@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Retraining Cycle — FraudShield AI Engine</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-brand" href="index.html">FraudShield AI Engine <span>· Documentation</span></a>
+  <div class="header-breadcrumb">
+    <a href="index.html">Home</a> › Model Retraining Cycle
+  </div>
+  <span class="header-badge">Confidential · Internal Use Only</span>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-section">Overview</div>
+  <a href="index.html">Introduction</a>
+  <a href="index.html#architecture">Architecture</a>
+  <a href="index.html#components">Component Overview</a>
+
+  <div class="nav-section">Risk Model</div>
+  <a href="risk-model.html">Risk Scoring Model</a>
+  <a href="model-inputs.html">Model Input Features</a>
+  <a href="configuration.html">Model Configuration</a>
+
+  <div class="nav-section">Operations</div>
+  <a href="threshold-tuning.html">Threshold Tuning</a>
+  <a href="false-positives.html">False Positive Handling</a>
+  <a href="retraining.html" class="active">Model Retraining Cycle</a>
+
+  <div class="nav-section">Integration</div>
+  <a href="api-integration.html">API Integration Guide</a>
+  <a href="audit-explainability.html">Audit Logs &amp; Explainability</a>
+</nav>
+
+<main class="main">
+
+  <h1>Model Retraining Cycle</h1>
+  <p class="topic-meta">
+    <span>Audience: Data Science, Fraud Operations</span>
+    <span>Last updated: March 2026</span>
+    <span>Version: 4.2</span>
+  </p>
+
+  <p>
+    Fraud patterns evolve continuously. The ML detection models powering FraudShield AI must be retrained regularly so they remain calibrated against current fraud typologies. This page describes when to retrain, how the champion/challenger framework works, the training data requirements, and the deployment and rollback process.
+  </p>
+
+  <div class="note">
+    <strong>Retraining is a data science responsibility</strong>
+    Triggering a retrain requires approval from the Model Owner (typically a senior fraud data scientist) and sign-off from the Model Risk Management team. Don't retrain models in response to a single week of degraded performance without first ruling out data quality issues or a seasonal anomaly.
+  </div>
+
+  <!-- WHEN TO RETRAIN -->
+  <h2 id="when-to-retrain">When to retrain</h2>
+  <p>
+    Retrain a detection model when any of the following conditions are met:
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Trigger</th>
+          <th>Indicator</th>
+          <th>Urgency</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Model drift</strong></td>
+          <td>Population Stability Index (PSI) &gt; 0.25 for any input feature distribution, sustained over 4 consecutive weeks.</td>
+          <td><span class="score-badge badge-high">High</span></td>
+        </tr>
+        <tr>
+          <td><strong>Performance degradation</strong></td>
+          <td>AUC-ROC drops &gt; 5 percentage points below the baseline established at last deployment.</td>
+          <td><span class="score-badge badge-high">High</span></td>
+        </tr>
+        <tr>
+          <td><strong>New fraud typology</strong></td>
+          <td>A confirmed new fraud pattern is not represented in current training data (identified via typology gap analysis).</td>
+          <td><span class="score-badge badge-medium">Medium</span></td>
+        </tr>
+        <tr>
+          <td><strong>Scheduled retraining</strong></td>
+          <td>Standard annual retraining cycle, regardless of performance. Required for SR 11-7 model governance compliance.</td>
+          <td><span class="score-badge badge-neutral">Routine</span></td>
+        </tr>
+        <tr>
+          <td><strong>Significant portfolio change</strong></td>
+          <td>Acquisition, new product launch, or channel expansion that materially changes the transaction mix.</td>
+          <td><span class="score-badge badge-medium">Medium</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CHAMPION CHALLENGER -->
+  <h2 id="champion-challenger">Champion / challenger framework</h2>
+  <p>
+    FraudShield AI uses a champion/challenger (C/C) framework for all model updates. The current production model is the <strong>champion</strong>. A newly trained model is the <strong>challenger</strong>. Both models run simultaneously in shadow mode, scoring every transaction. The champion's decision governs; the challenger's score is logged without influencing the outcome.
+  </p>
+
+  <div class="arch-diagram">
+    <div class="arch-title">Champion / challenger scoring flow</div>
+<pre>
+Incoming transaction
+        │
+        ├──────────────────────────────────┐
+        ▼                                  ▼
+CHAMPION model                      CHALLENGER model
+(production — decision governs)     (shadow mode — logged only)
+        │                                  │
+        ▼                                  ▼
+Decision: APPROVE / STEP-UP / BLOCK   Score logged to challenger_scores table
+        │
+        ▼
+Response returned to core banking
+
+After evaluation period (30–60 days):
+  ┌─────────────────────────────────────────────────────┐
+  │ Compare challenger vs. champion across:             │
+  │  • AUC-ROC, precision, recall, F1                   │
+  │  • False positive rate by BTA and segment           │
+  │  • Confirmed fraud catch rate                       │
+  │  • Score stability (PSI on challenger scores)       │
+  └─────────────────────────────────────────────────────┘
+        │
+   ┌────┴─────────────────────────────┐
+   │ Challenger wins                  │ Champion retained
+   │                                  │
+   ▼                                  ▼
+Promote challenger to champion     Challenger retired
+Deploy via blue/green deployment   Retrain with additional data
+</pre>
+  </div>
+
+  <!-- DATA REQUIREMENTS -->
+  <h2 id="data-requirements">Training data requirements</h2>
+
+  <h3>Minimum data volumes</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Minimum fraud labels</th>
+          <th>Minimum legitimate labels</th>
+          <th>Recommended observation window</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>MDL_WIRE_ATO</code></td>
+          <td>2,000</td>
+          <td>200,000</td>
+          <td>24 months</td>
+        </tr>
+        <tr>
+          <td><code>MDL_ACH_FRAUD</code></td>
+          <td>5,000</td>
+          <td>500,000</td>
+          <td>18 months</td>
+        </tr>
+        <tr>
+          <td><code>MDL_RTP_MULE</code></td>
+          <td>1,500</td>
+          <td>150,000</td>
+          <td>12 months</td>
+        </tr>
+        <tr>
+          <td><code>MDL_CARD_CNP</code></td>
+          <td>10,000</td>
+          <td>1,000,000</td>
+          <td>18 months</td>
+        </tr>
+        <tr>
+          <td><code>MDL_1PF_APPFRAUD</code></td>
+          <td>3,000</td>
+          <td>300,000</td>
+          <td>24 months</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Label quality requirements</h3>
+  <ul>
+    <li><strong>Fraud labels</strong> must be sourced from confirmed fraud dispositions in Case Manager, not from alert creation. Unreviewed alerts must not be included as fraud labels.</li>
+    <li><strong>Legitimate labels</strong> are sampled from non-alerted transactions using a stratified sampling strategy to ensure representation across all channels, BTAs, and customer segments.</li>
+    <li>Labels must include a <strong>performance window</strong> of at least 90 days after the transaction date to allow charge-backs and late-reported fraud to be captured.</li>
+  </ul>
+
+  <!-- TRAINING PIPELINE -->
+  <h2 id="training-pipeline">Training pipeline</h2>
+
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <strong>Data extraction and labeling</strong>
+        <p>Extract labeled transactions from the data warehouse using the Model Training Extract job. Include all RI values calculated at the time of the transaction (stored in the RI audit log). This ensures the model trains on the same feature values that real-time scoring uses.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Feature engineering and validation</strong>
+        <p>Run the Feature Validation Report to check for data drift (PSI), missing value rates, and feature correlation changes against the previous training dataset. Resolve any issues before training begins.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Model training</strong>
+        <p>Train the challenger model using the ML Model Configuration Platform (MCP). Select the algorithm type (XGBoost, Neural Network, or Gradient Boosting), configure hyperparameters, and run a k-fold cross-validation (k=5) to evaluate out-of-sample performance.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Back-test evaluation</strong>
+        <p>Evaluate the challenger model on a held-out test set (most recent 3 months of data, excluded from training). Record AUC-ROC, KS statistic, precision at alert rate, and the Gini coefficient. All metrics must meet or exceed the thresholds in the Model Validation Policy.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Model Risk Management review</strong>
+        <p>Submit the Model Validation Report to the Model Risk Management team. Approval is required before the challenger model can be deployed to shadow mode.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Shadow-mode deployment and monitoring</strong>
+        <p>Deploy the challenger model in shadow mode for 30–60 days. Monitor challenger score distribution, FPR, FNR, and PSI weekly. Compare against champion performance using the C/C Dashboard in the Operations Console.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong>Promotion decision</strong>
+        <p>After the evaluation period, the Model Owner presents the promotion recommendation to the Model Risk Management team. If approved, the challenger is promoted to champion via the blue/green deployment process.</p>
+      </div>
+    </li>
+  </ol>
+
+  <!-- DEPLOYMENT AND ROLLBACK -->
+  <h2 id="deployment-rollback">Deployment and rollback</h2>
+  <p>
+    Model promotion uses a <strong>blue/green deployment</strong>: the new champion model is deployed alongside the current champion. Traffic is gradually shifted (10% → 50% → 100% over 48 hours) while monitoring alert volumes and score distributions. If an anomaly is detected, traffic is shifted back to the previous champion immediately.
+  </p>
+
+  <h3>Rollback procedure</h3>
+  <ol>
+    <li>In the Operations Console, go to <strong>Administration &gt; Model Registry &gt; Active Models</strong>.</li>
+    <li>Select the model to roll back and select <strong>Revert to Previous Champion</strong>.</li>
+    <li>Confirm the rollback. Traffic shifts back to the previous champion within 60 seconds.</li>
+    <li>Open an incident ticket and notify the Model Risk Management team within 24 hours of the rollback.</li>
+    <li>Investigate the root cause before attempting re-deployment.</li>
+  </ol>
+
+  <div class="caution">
+    <strong>Rollback doesn't restore suppression rules</strong>
+    Model rollback restores the ML model file only. Suppression rules and threshold changes made alongside the promotion must be reverted manually in <code>threshold-config.yaml</code> and <code>ri-config.ini</code>.
+  </div>
+
+</main>
+</body>
+</html>
