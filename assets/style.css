@@ -513,3 +513,19 @@ dd { font-size: 0.86rem; color: var(--text-secondary); margin-left: 1.25rem; }
 }
 .theme-toggle:hover { background: rgba(255,255,255,0.18); }
 
+
+/* Footer */
+.doc-footer {
+  margin-top: 3rem;
+  padding: 1.25rem 2rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: space-between;
+  align-items: center;
+}
+.doc-footer a { color: var(--accent); text-decoration: none; }
+.doc-footer a:hover { text-decoration: underline; }
